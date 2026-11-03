@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Medidores de Agua</title>
+<title>Control de Utilities</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --azul:#0b5cab;
@@ -353,57 +354,160 @@
     .tab.tab-principal, .tab.tab-verde{ font-size:10.5px; }
     main{ padding:12px; }
   }
+  /* --- Control de Utilities: barra superior, menú y avisos --- */
+  .barra{display:flex;align-items:center;gap:12px;padding-bottom:14px;}
+  .barra h1{margin:0;font-size:17px;font-weight:600;flex:1;}
+  .btn-atras{
+    display:none;
+    background:rgba(255,255,255,.16);
+    border:none;
+    color:#fff;
+    font-size:13px;
+    font-weight:600;
+    padding:8px 12px;
+    border-radius:8px;
+    cursor:pointer;
+    align-items:center;
+    white-space:nowrap;
+  }
+  .btn-atras:active{background:rgba(255,255,255,.28);}
+  .menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .tile{
+    background:#fff;
+    border:1px solid var(--borde);
+    border-radius:16px;
+    padding:22px 12px 18px;
+    min-height:132px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    text-align:center;
+    cursor:pointer;
+    font:inherit;
+    color:var(--texto);
+  }
+  .tile:active{background:#eef3f8;}
+  .ico{
+    width:56px;height:56px;
+    border-radius:16px;
+    display:inline-flex;align-items:center;justify-content:center;
+    flex:none;
+    background:#e6f0fa;color:var(--azul);
+  }
+  .ico svg{width:28px;height:28px;display:block;}
+  .ico-agua,.ico-equipos{background:#e6f0fa;color:#0b5cab;}
+  .ico-gas{background:#fdf0dc;color:#d9791a;}
+  .ico-energia{background:#fbf3d0;color:#b88a00;}
+  .ico-kg{background:#e6f5ec;color:#1f8a4c;}
+  .ico-dashboard{background:#eeebfb;color:#5a47c9;}
+  .ico-reportes{background:#eef1f4;color:#5c6975;}
+  .ico-planta{background:#e4f3f2;color:#14827a;}
+  .tile-lista .ico{width:48px;height:48px;border-radius:14px;}
+  .tile-lista .ico svg{width:24px;height:24px;}
+  .tile .tit{font-size:15px;font-weight:700;color:var(--azul-oscuro);}
+  .tile .sub{font-size:12px;color:var(--gris);}
+  .tile-lista{
+    width:100%;
+    flex-direction:row;
+    justify-content:flex-start;
+    text-align:left;
+    gap:16px;
+    min-height:0;
+    padding:20px 18px;
+    margin-bottom:12px;
+  }
+  .aviso{
+    background:#fff6e5;
+    border:1px solid #f0d9a8;
+    color:#7a5410;
+    border-radius:10px;
+    padding:12px 14px;
+    font-size:13px;
+    margin-bottom:14px;
+    line-height:1.4;
+  }
+  .toast{
+    position:fixed;
+    left:50%;
+    bottom:20px;
+    transform:translateX(-50%) translateY(20px);
+    max-width:min(92vw,520px);
+    background:#1c2733;
+    color:#fff;
+    font-size:13px;
+    padding:11px 16px;
+    border-radius:10px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s, transform .2s;
+    z-index:50;
+  }
+  .toast.visible{opacity:1;transform:translateX(-50%) translateY(0);}
+  .archivo-fila{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    padding:12px 14px;
+    background:#fff;
+    border:1px solid var(--borde);
+    border-radius:8px;
+    margin-bottom:8px;
+  }
+  .archivo-info{min-width:0;}
+  .archivo-nombre{font-size:14px;font-weight:600;overflow-wrap:anywhere;}
+  .archivo-meta{font-size:12px;color:var(--gris);margin-top:2px;}
+  .archivo-acciones{display:flex;gap:12px;flex:none;}
+  @media (min-width:700px){
+    .barra h1{font-size:19px;}
+    .tile{min-height:150px;}
+  }
+  @media (max-width:360px){
+    .barra h1{font-size:15px;}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="tituloHeader">Medidores de Agua</h1>
-  <div class="tabs">
-    <button class="tab tab-principal" id="tabRegistro" onclick="irARegistro()">Equipos (Semanal)</button>
-    <button class="tab tab-verde" id="tabDiario" onclick="irADiario()">Planta (Diario)</button>
-    <button class="tab" id="tabKg" onclick="irAKg()">Kg Producidos (Semanal)</button>
-    <button class="tab" id="tabGas" onclick="irAGas()">Gas (Semanal)</button>
-    <button class="tab" id="tabEnergia" onclick="irAEnergia()">Energía (Semanal)</button>
-    <button class="tab" id="tabConsumo" onclick="irAAnalisis()">Análisis</button>
-    <button class="tab" id="tabAgregar" onclick="irAAgregar()">Agregar línea</button>
+  <div class="barra">
+    <button id="btnAtras" class="btn-atras" onclick="atras()">← Atrás</button>
+    <h1 id="tituloHeader">Control de Utilities</h1>
   </div>
 </header>
 <main id="app"></main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
 /* =========================================================
    CONFIGURACIÓN
-   Reemplaza esta URL por la que te da Apps Script al
-   implementar como "Aplicación web" (ver Code.gs).
+   Pega aquí los datos de tu proyecto de Supabase
+   (Project Settings > API): la "Project URL" y la clave
+   "anon" / "publishable". Nunca uses la clave "service_role".
 ========================================================= */
-const BASE_URL = "https://script.google.com/macros/s/AKfycbwWNxjFm2FvnJk6YZAv19gI6N-_JOjAQRDa3vwzVjOYbpz_JZdbfROK3Iu-fleLXnw65A/exec";
-// Líneas originales del Excel (Equipos, Semanal). Si el backend no tiene
-// NINGUNA línea de este tipo todavía, las crea automáticamente con estos
-// mismos números la primera vez que se abre.
-const LINEAS_POR_DEFECTO = [
-  { medidorNum: 1,  nombre: "SOLO DUCHA" },
-  { medidorNum: 2,  nombre: "PAILAS COCCION + DUCHA" },
-  { medidorNum: 3,  nombre: "LAVATINAS" },
-  { medidorNum: 4,  nombre: "CALDERA" },
-  { medidorNum: 5,  nombre: "EMBUTIDORAS" },
-  { medidorNum: 6,  nombre: "PAILAS JAMONES" },
-  { medidorNum: 7,  nombre: "ESPECIALIDADES" },
-  { medidorNum: 8,  nombre: "PROD HIELO" },
-  { medidorNum: 9,  nombre: "FILTRO1 + CLIMATIZADA + CUTTER" },
-  { medidorNum: 10, nombre: "FORM CUTTER" },
-  { medidorNum: 11, nombre: "FESSMAN" },
-  { medidorNum: 12, nombre: "ATMOS MAURER" },
-  { medidorNum: 13, nombre: "IMPIANTI 1" },
-  { medidorNum: 14, nombre: "IMPIANTI 2" },
-  { medidorNum: 15, nombre: "IMPIANTI 3" },
-  { medidorNum: 16, nombre: "IMPIANTI 4" }
-];
-// Mediciones de Planta (Diario). Números propios (101, 102, ...) para no
-// chocar con los medidores 1-16 de Equipos.
-const LINEAS_DIARIO_POR_DEFECTO = [
-  { medidorNum: 101, nombre: "Planta de Producción" },
-  { medidorNum: 102, nombre: "Oficinas" }
-];
+const SUPABASE_URL = "https://TU-PROYECTO.supabase.co";
+const SUPABASE_KEY = "TU-CLAVE-ANON";
+const BUCKET_ENERGIA = "energia";
+
+// Regla especial (solo Equipos Semanal): el medidor 2 "PAILAS COCCION + DUCHA"
+// mide pailas + ducha juntas, así que a su consumo se le resta el del medidor 1.
+// Formato: { medidorQueSeAjusta: medidorQueSeResta }
+const RESTAS_ESPECIALES = { 2: 1 };
+
+let sb;
+try{
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+}catch(e){
+  const sinConexion = () => { throw new Error("No se pudo iniciar Supabase. Revisa SUPABASE_URL, SUPABASE_KEY y la conexión a internet."); };
+  sb = { from: sinConexion, storage: { from: sinConexion } };
+}
+const configurado = !/TU-PROYECTO|TU-CLAVE/.test(SUPABASE_URL + SUPABASE_KEY);
+
 const app = document.getElementById("app");
+
+/* =========================================================
+   UTILIDADES
+========================================================= */
 function formatearFechaDMA(fechaISO){
   // "2026-07-30" -> "30/07/2026"
   if (!fechaISO) return "";
@@ -425,15 +529,32 @@ function getISOWeek(date){
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
+// Fecha de hoy en hora LOCAL (toISOString usaría UTC y desde las 7 pm de Lima daría el día siguiente).
+function hoyISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function semanaDeFecha(iso){
+  const p = String(iso).split("-").map(Number);
+  return getISOWeek(new Date(p[0], p[1] - 1, p[2]));
+}
+let toastTimer = null;
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("visible"), 6000);
+}
+
 /* =========================================================
    ESTADO GENERAL Y CACHÉ EN MEMORIA
 ========================================================= */
-let vistaActual = "registro"; // "registro" | "diario" | "consumo" | "agregar"
-// --- Equipos (Semanal) ---
+let vistaActual = "menu";
+// --- Agua · Equipos (Semanal) ---
 let lineasGlobal = [];        // [{medidorNum, nombre}]
-let sembrandoLineas = false;
 let semanaActual = getISOWeek(new Date());
-let fechaActual = new Date().toISOString().slice(0,10);
+let fechaActual = hoyISO();
 let lecturasSemana = {};
 let cacheLecturasPorSemana = {};
 let semanaAbierta = false;
@@ -443,10 +564,9 @@ let filtroLinea = "";
 let filtroTipo = "semana";    // "semana" | "mes"
 let filtroValor = null;
 let ordenGrafico = "desc";    // "desc" (mayor a menor) | "asc" (menor a mayor)
-// --- Planta (Diario) ---
+// --- Agua · Planta (Diario) ---
 let lineasDiarioGlobal = [];        // [{medidorNum, nombre}]
-let sembrandoLineasDiario = false;
-let fechaDiarioActual = new Date().toISOString().slice(0,10);
+let fechaDiarioActual = hoyISO();
 let lecturasDiario = {};
 let cacheLecturasPorFecha = {};
 let fechaDiarioAbierta = false;
@@ -458,118 +578,159 @@ let filtroDiarioMes = null;         // "yyyy-mm"
 let kgGlobal = null;                // { embutidos:{semana:kg}, empacado:{semana:kg} }
 let kgSemana = null;                // semana que se está registrando
 
-function actualizarTabs(){
-  document.getElementById("tabRegistro").classList.toggle("activo", vistaActual === "registro");
-  document.getElementById("tabDiario").classList.toggle("activo", vistaActual === "diario");
-  document.getElementById("tabKg").classList.toggle("activo", vistaActual === "kg");
-  document.getElementById("tabGas").classList.toggle("activo", vistaActual === "gas");
-  document.getElementById("tabEnergia").classList.toggle("activo", vistaActual === "energia");
-  document.getElementById("tabConsumo").classList.toggle("activo", vistaActual === "consumo");
-  document.getElementById("tabAgregar").classList.toggle("activo", vistaActual === "agregar");
-}
-/* Precarga: al abrir la app se piden todos los datos a la vez, para que
-   cada pestaña ya los tenga listos cuando se abra. */
-const precarga = {};
-const PRECARGA_MS = 90000;
-function precargar(url){
-  precarga[url] = { t: Date.now(), p: fetch(url).then(r => r.json()).catch(() => null) };
-}
-function getJSON(url){
-  const e = precarga[url];
-  delete precarga[url];
-  const directo = () => fetch(url).then(r => r.json());
-  if (e && Date.now() - e.t < PRECARGA_MS) return e.p.then(d => d || directo());
-  return directo();
-}
-function olvidarPrecarga(){ Object.keys(precarga).forEach(k => delete precarga[k]); }
-function precargarTodo(){
-  const u = BASE_URL + "?action=";
-  precargar(u + "lineas&tipo=semanal");
-  precargar(u + "lineas&tipo=diario");
-  precargar(u + "lecturas&tipo=semanal&semana=" + semanaActual);
-  precargar(u + "lecturas&tipo=diario&fecha=" + fechaDiarioActual);
-  precargar(u + "kg");
-  precargar(u + "consumos");
-  precargar(u + "consumo&tipo=semanal");
-  precargar(u + "consumo&tipo=diario");
+/* =========================================================
+   ACCESO A SUPABASE
+========================================================= */
+// Trae TODAS las filas de una tabla (Supabase entrega máximo 1000 por consulta).
+async function traerTodo(tabla, columnas, orden){
+  const filas = [];
+  const paso = 1000;
+  for (let desde = 0; ; desde += paso){
+    let q = sb.from(tabla).select(columnas);
+    orden.forEach(c => { q = q.order(c, { ascending: true }); });
+    const { data, error } = await q.range(desde, desde + paso - 1);
+    if (error) throw new Error(error.message);
+    filas.push(...data);
+    if (data.length < paso) break;
+  }
+  return filas;
 }
 async function obtenerLineasDesdeBackend(tipo){
   try{
-    const data = await getJSON(`${BASE_URL}?action=lineas&tipo=${tipo}`);
-    return (data.ok && data.lineas) ? data.lineas : [];
+    const { data, error } = await sb.from("lineas").select("medidor_num,nombre").eq("tipo", tipo).order("medidor_num");
+    if (error) throw new Error(error.message);
+    return data.map(l => ({ medidorNum: Number(l.medidor_num), nombre: String(l.nombre) }));
   }catch(e){
+    toast("No se pudieron cargar las líneas: " + e.message);
     return [];
   }
 }
 async function cargarLineas(){
   lineasGlobal = await obtenerLineasDesdeBackend("semanal");
-  if (!lineasGlobal.length && !sembrandoLineas){
-    sembrandoLineas = true;
-    for (const l of LINEAS_POR_DEFECTO){
-      try{
-        olvidarPrecarga(); await fetch(BASE_URL, {
-          method: "POST",
-          body: JSON.stringify({ accion:"agregarLinea", tipo:"semanal", medidorNum: l.medidorNum, nombre: l.nombre })
-        });
-      }catch(e){ /* si una falla, seguimos con las demás */ }
-    }
-    lineasGlobal = await obtenerLineasDesdeBackend("semanal");
-    sembrandoLineas = false;
-  }
 }
 async function cargarLineasDiario(){
   lineasDiarioGlobal = await obtenerLineasDesdeBackend("diario");
-  if (!lineasDiarioGlobal.length && !sembrandoLineasDiario){
-    sembrandoLineasDiario = true;
-    for (const l of LINEAS_DIARIO_POR_DEFECTO){
-      try{
-        olvidarPrecarga(); await fetch(BASE_URL, {
-          method: "POST",
-          body: JSON.stringify({ accion:"agregarLinea", tipo:"diario", medidorNum: l.medidorNum, nombre: l.nombre })
-        });
-      }catch(e){ /* si una falla, seguimos con las demás */ }
-    }
-    lineasDiarioGlobal = await obtenerLineasDesdeBackend("diario");
-    sembrandoLineasDiario = false;
+}
+// consumo(punto N) = lectura(N) - lectura(N-1). El primer punto registrado no tiene consumo (null).
+// "semanal" encadena por semana; "diario", por fecha.
+function construirHistorial(tipo, lineas, filas){
+  const porMedidor = {};
+  filas.forEach(r => {
+    const m = Number(r.medidor_num);
+    if (!porMedidor[m]) porMedidor[m] = [];
+    porMedidor[m].push({ fecha: String(r.fecha).slice(0, 10), semana: Number(r.semana), lectura: Number(r.lectura) });
+  });
+  const hist = {};
+  Object.keys(porMedidor).forEach(k => {
+    const puntos = porMedidor[k].sort((a, b) => {
+      if (tipo === "diario") return a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : 0);
+      return a.semana - b.semana;
+    });
+    hist[k] = puntos.map((p, i) => {
+      const ant = puntos[i - 1];
+      return { semana: p.semana, fecha: p.fecha, lectura: p.lectura, consumo: ant ? Number((p.lectura - ant.lectura).toFixed(2)) : null };
+    });
+  });
+  if (tipo === "semanal"){
+    Object.keys(RESTAS_ESPECIALES).forEach(k => {
+      const medidor = Number(k);
+      const consumoPorSemana = {};
+      (hist[RESTAS_ESPECIALES[k]] || []).forEach(p => { consumoPorSemana[p.semana] = p.consumo; });
+      hist[medidor] = (hist[medidor] || []).map(p => {
+        const c = consumoPorSemana[p.semana];
+        const ajustado = (p.consumo !== null && c !== null && c !== undefined) ? Number((p.consumo - c).toFixed(2)) : null;
+        return { semana: p.semana, fecha: p.fecha, lectura: p.lectura, consumo: ajustado };
+      });
+    });
   }
+  return lineas.map(l => ({ medidorNum: l.medidorNum, nombre: l.nombre, historial: hist[l.medidorNum] || [] }));
 }
+async function cargarConsumoSemanal(){
+  const filas = await traerTodo("lecturas_semanales", "medidor_num,semana,fecha,lectura", ["medidor_num", "semana"]);
+  consumoGlobal = construirHistorial("semanal", lineasGlobal, filas);
+}
+async function cargarConsumoDiario(){
+  const filas = await traerTodo("lecturas_diarias", "medidor_num,fecha,semana,lectura", ["medidor_num", "fecha"]);
+  consumoDiarioGlobal = construirHistorial("diario", lineasDiarioGlobal, filas);
+}
+
 /* =========================================================
-   NAVEGACIÓN
+   NAVEGACIÓN (menú principal → secciones)
 ========================================================= */
-async function irARegistro(){
-  vistaActual = "registro";
-  actualizarTabs();
-  await renderRegistro();
+const VISTAS = {
+  menu:         { titulo: "Control de Utilities",     padre: null },
+  agua:         { titulo: "Medidores de agua",        padre: "menu" },
+  agua_equipos: { titulo: "Agua · Equipos (Semanal)", padre: "agua" },
+  agua_planta:  { titulo: "Agua · Planta (Diario)",   padre: "agua" },
+  gas:          { titulo: "Medición de gas",          padre: "menu" },
+  energia:      { titulo: "Medición de energía",      padre: "menu" },
+  kg:           { titulo: "Kg producidos",            padre: "menu" },
+  dashboard:    { titulo: "Dashboard",                padre: "menu" },
+  reportes:     { titulo: "Reportes",                 padre: "menu" }
+};
+async function irA(vista){
+  vistaActual = vista;
+  window.scrollTo(0, 0);
+  document.getElementById("tituloHeader").textContent = VISTAS[vista].titulo;
+  document.getElementById("btnAtras").style.display = VISTAS[vista].padre ? "inline-flex" : "none";
+  if (vista === "menu") renderMenu();
+  else if (vista === "agua") renderAgua();
+  else if (vista === "agua_equipos") await renderRegistro();
+  else if (vista === "agua_planta") await renderDiario();
+  else if (vista === "gas") await renderGas();
+  else if (vista === "energia") await renderEnergia();
+  else if (vista === "kg") await renderKg();
+  else if (vista === "dashboard") await renderAnalisis();
+  else if (vista === "reportes") renderReportes();
 }
-async function irADiario(){
-  vistaActual = "diario";
-  actualizarTabs();
-  await renderDiario();
+function atras(){
+  const padre = VISTAS[vistaActual].padre;
+  if (padre) irA(padre);
 }
-async function irAKg(){
-  vistaActual = "kg";
-  actualizarTabs();
-  await renderKg();
+const ICONOS = {
+  agua:      '<path d="M12 2.7C12 2.7 5.5 9.6 5.5 14.2a6.5 6.5 0 0 0 13 0C18.5 9.6 12 2.7 12 2.7z"/><path d="M9 14.5a3 3 0 0 0 3 3"/>',
+  gas:       '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  energia:   '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  kg:        '<circle cx="12" cy="5" r="3"/><path d="M6.5 8a2 2 0 0 0-1.9 1.46L2.1 18.5A2 2 0 0 0 4 21h16a2 2 0 0 0 1.93-2.5L19.4 9.5A2 2 0 0 0 17.5 8z"/>',
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  reportes:  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+  equipos:   '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  planta:    '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/>'
+};
+function icono(nombre){
+  return `<span class="ico ico-${nombre}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[nombre]}</svg></span>`;
 }
-async function irAGas(){
-  vistaActual = "gas";
-  actualizarTabs();
-  await renderOtros("gas");
+function renderMenu(){
+  const aviso = configurado ? "" :
+    `<div class="aviso">Falta conectar Supabase: edita <b>SUPABASE_URL</b> y <b>SUPABASE_KEY</b> al inicio del script.</div>`;
+  const tiles = [
+    ["agua",      "agua", "Medidores de agua",  "Equipos y planta"],
+    ["gas",       "gas", "Medición de gas",    "Registro semanal"],
+    ["energia",   "energia", "Medición de energía", "Carga de Excel"],
+    ["kg",        "kg", "Kg producidos",      "Registro semanal"],
+    ["dashboard", "dashboard", "Dashboard",          "Análisis y alertas"],
+    ["reportes",  "reportes", "Reportes",           "Próximamente"]
+  ];
+  app.innerHTML = aviso + `<div class="menu-grid">` + tiles.map(t => `
+    <button class="tile" onclick="irA('${t[0]}')">
+      ${icono(t[1])}
+      <span class="tit">${t[2]}</span>
+      <span class="sub">${t[3]}</span>
+    </button>`).join("") + `</div>`;
 }
-async function irAEnergia(){
-  vistaActual = "energia";
-  actualizarTabs();
-  await renderOtros("energia");
+function renderAgua(){
+  app.innerHTML = `
+    <button class="tile tile-lista" onclick="irA('agua_equipos')">
+      ${icono("equipos")}
+      <span><span class="tit">Equipos (Semanal)</span><br><span class="sub">Lectura de cada medidor, una vez por semana</span></span>
+    </button>
+    <button class="tile tile-lista" onclick="irA('agua_planta')">
+      ${icono("planta")}
+      <span><span class="tit">Planta (Diario)</span><br><span class="sub">Lecturas diarias de las mediciones de planta</span></span>
+    </button>`;
 }
-async function irAAnalisis(){
-  vistaActual = "consumo";
-  actualizarTabs();
-  await renderAnalisis();
-}
-function irAAgregar(){
-  vistaActual = "agregar";
-  actualizarTabs();
-  renderAgregar();
+function renderReportes(){
+  app.innerHTML = `<div class="vacio">Esta sección estará disponible próximamente.</div>`;
 }
 /* =========================================================
    PANTALLA: Equipos (Semanal) — registrar lecturas
@@ -578,6 +739,7 @@ async function renderRegistro(){
   if (!lineasGlobal.length){
     app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando líneas...</div>`;
     await cargarLineas();
+    if (vistaActual !== "agua_equipos") return;
   }
   const yaEnCache = Object.prototype.hasOwnProperty.call(cacheLecturasPorSemana, semanaActual);
   lecturasSemana = yaEnCache ? cacheLecturasPorSemana[semanaActual] : {};
@@ -609,8 +771,9 @@ async function renderRegistro(){
   `;
   renderListaLineas(!yaEnCache);
   if (!yaEnCache){
-    await cargarLecturasSemana();
-    cacheLecturasPorSemana[semanaActual] = lecturasSemana;
+    const ok = await cargarLecturasSemana();
+    if (vistaActual !== "agua_equipos") return;
+    if (ok) cacheLecturasPorSemana[semanaActual] = lecturasSemana;
     renderListaLineas(false);
   }
 }
@@ -637,17 +800,22 @@ async function refrescarSemanaActual(){
 }
 async function cargarLecturasSemana(){
   try{
-    const data = await getJSON(`${BASE_URL}?action=lecturas&tipo=semanal&semana=${semanaActual}`);
-    lecturasSemana = (data.ok && data.lecturas) ? data.lecturas : {};
+    const { data, error } = await sb.from("lecturas_semanales").select("medidor_num,lectura").eq("semana", semanaActual);
+    if (error) throw new Error(error.message);
+    lecturasSemana = {};
+    data.forEach(r => { lecturasSemana[Number(r.medidor_num)] = Number(r.lectura); });
+    return true;
   }catch(e){
     lecturasSemana = {};
+    toast("No se pudieron cargar las lecturas: " + e.message);
+    return false;
   }
 }
 function renderListaLineas(cargandoEstado){
   const cont = document.getElementById("listaLineas");
   cont.innerHTML = "";
   if (!lineasGlobal.length){
-    cont.innerHTML = `<div class="vacio">No se pudieron cargar las líneas. Revisa que BASE_URL apunte a tu Apps Script.</div>`;
+    cont.innerHTML = `<div class="vacio">No se pudieron cargar las líneas. Revisa la conexión con Supabase y que las tablas estén creadas.</div>`;
     return;
   }
   lineasGlobal.forEach(l => {
@@ -699,12 +867,10 @@ async function guardarLectura(medidorNum, box){
   const textoOriginal = btn.textContent;
   btn.textContent = "Guardando...";
   try{
-    olvidarPrecarga(); const resp = await fetch(BASE_URL, {
-      method: "POST",
-      body: JSON.stringify({ accion:"guardarLectura", tipo:"semanal", medidorNum, semana: semanaActual, fecha: fechaActual, lectura: valor })
-    });
-    const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || "Error desconocido");
+    const { error } = await sb.from("lecturas_semanales").upsert(
+      { medidor_num: medidorNum, semana: semanaActual, fecha: fechaActual, lectura: valor },
+      { onConflict: "medidor_num,semana" });
+    if (error) throw new Error(error.message);
     lecturasSemana[medidorNum] = valor;
     cacheLecturasPorSemana[semanaActual] = lecturasSemana;
     consumoGlobal = null; // los datos de consumo quedaron desactualizados
@@ -731,9 +897,9 @@ function kgRegistrado(clave, semana){
 }
 async function cargarKg(){
   try{
-    const data = await getJSON(`${BASE_URL}?action=kg`);
-    if (!data.ok) throw new Error(data.error || "Error desconocido");
-    kgGlobal = { embutidos: data.kg.embutidos || {}, empacado: data.kg.empacado || {} };
+    const filas = await traerTodo("kg_producidos", "semana,producto,kg", ["semana", "producto"]);
+    kgGlobal = { embutidos: {}, empacado: {} };
+    filas.forEach(f => { if (kgGlobal[f.producto]) kgGlobal[f.producto][Number(f.semana)] = Number(f.kg); });
     return true;
   }catch(e){
     kgGlobal = null;
@@ -749,13 +915,14 @@ async function renderKg(){
   if (kgGlobal === null){
     app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando...</div>`;
     const r = await cargarKg();
+    if (vistaActual !== "kg") return;
     if (r !== true){
       app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${r}</div>`;
       return;
     }
   }
   // Por defecto se propone la semana siguiente a la última con datos.
-  if (kgSemana === null) kgSemana = maxSemanaKg() + 1;
+  if (kgSemana === null){ const m = maxSemanaKg(); kgSemana = m > 0 ? m + 1 : semanaActual; }
   pintarKg();
 }
 function pintarKg(){
@@ -842,12 +1009,10 @@ async function guardarKgSemana(){
   const fallos = [];
   await Promise.all(tareas.map(async t => {
     try{
-      olvidarPrecarga(); const resp = await fetch(BASE_URL, {
-        method: "POST",
-        body: JSON.stringify({ accion:"guardarKg", producto: t.p.clave, semana, kg: t.kg })
-      });
-      const data = await resp.json();
-      if (!data.ok) throw new Error(data.error || "Error desconocido");
+      const r = (t.kg === "")
+        ? await sb.from("kg_producidos").delete().eq("semana", semana).eq("producto", t.p.clave)
+        : await sb.from("kg_producidos").upsert({ semana, producto: t.p.clave, kg: t.kg }, { onConflict: "semana,producto" });
+      if (r.error) throw new Error(r.error.message);
       if (t.kg === "") delete kgGlobal[t.p.clave][semana];
       else kgGlobal[t.p.clave][semana] = t.kg;
     }catch(e){
@@ -855,6 +1020,7 @@ async function guardarKgSemana(){
     }
   }));
   btn.disabled = false;
+  if (vistaActual !== "kg") return;
   llenarCamposKg();
   if (fallos.length){
     btn.textContent = textoOriginal;
@@ -864,158 +1030,140 @@ async function guardarKgSemana(){
   }
 }
 /* =========================================================
-   PANTALLAS: Gas (Semanal) y Energía (Semanal)
-   Igual que Kg Producidos: se elige UNA semana y se ingresa el
-   consumo de esa semana. Gas tiene 2 mediciones; Energía, 1.
-   Para cambiar nombres o unidades, edita la tabla OTROS.
+   PANTALLA: Gas (Semanal)
+   Se elige UNA semana y se ingresa el consumo de cada medición.
+   Para cambiar nombres o unidad, edita la tabla GAS.
 ========================================================= */
-const OTROS = {
-  gas: {
-    unidad: "m³",
-    placeholder: "Ej: 1250.5",
-    items: [
-      { clave: "gas1", titulo: "Gas — Medición 1" },
-      { clave: "gas2", titulo: "Gas — Medición 2" }
-    ]
-  },
-  energia: {
-    unidad: "kWh",
-    placeholder: "Ej: 18500",
-    items: [
-      { clave: "energia", titulo: "Consumo de energía" }
-    ]
-  }
+const GAS = {
+  unidad: "m³",
+  placeholder: "Ej: 1250.5",
+  items: [
+    { clave: "gas1", titulo: "Gas — Medición 1" },
+    { clave: "gas2", titulo: "Gas — Medición 2" }
+  ]
 };
-let otrosGlobal = null;                       // { clave: { semana: valor } }
-const otrosSemana = { gas: null, energia: null };
+let gasGlobal = null;      // { clave: { semana: valor } }
+let gasSemana = null;      // semana que se está registrando
 
-function otroRegistrado(clave, semana){
-  return Object.prototype.hasOwnProperty.call(otrosGlobal[clave] || {}, semana);
+function gasRegistrado(clave, semana){
+  return Object.prototype.hasOwnProperty.call(gasGlobal[clave] || {}, semana);
 }
-async function cargarOtros(){
+async function cargarGas(){
   try{
-    const data = await getJSON(`${BASE_URL}?action=consumos`);
-    if (!data.ok) throw new Error(data.error || "Error desconocido");
-    if (!data.consumos) throw new Error("El Apps Script aún no tiene action=consumos. Actualízalo e impleméntalo de nuevo.");
-    otrosGlobal = {};
-    Object.keys(OTROS).forEach(cat => OTROS[cat].items.forEach(it => {
-      otrosGlobal[it.clave] = data.consumos[it.clave] || {};
-    }));
+    const filas = await traerTodo("gas_semanal", "semana,medicion,valor", ["semana", "medicion"]);
+    gasGlobal = {};
+    GAS.items.forEach(it => { gasGlobal[it.clave] = {}; });
+    filas.forEach(f => { if (gasGlobal[f.medicion]) gasGlobal[f.medicion][Number(f.semana)] = Number(f.valor); });
     return true;
   }catch(e){
-    otrosGlobal = null;
+    gasGlobal = null;
     return e.message;
   }
 }
-function maxSemanaOtros(cat){
+function maxSemanaGas(){
   let max = 0;
-  OTROS[cat].items.forEach(it => Object.keys(otrosGlobal[it.clave]).forEach(s => { if (Number(s) > max) max = Number(s); }));
+  GAS.items.forEach(it => Object.keys(gasGlobal[it.clave]).forEach(s => { if (Number(s) > max) max = Number(s); }));
   return max;
 }
-async function renderOtros(cat){
-  if (otrosGlobal === null){
+async function renderGas(){
+  if (gasGlobal === null){
     app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando...</div>`;
-    const r = await cargarOtros();
-    if (vistaActual !== cat) return;   // el usuario cambió de pestaña mientras cargaba
+    const r = await cargarGas();
+    if (vistaActual !== "gas") return;   // el usuario cambió de pantalla mientras cargaba
     if (r !== true){
       app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${esc(r)}</div>`;
       return;
     }
   }
   // Por defecto: la semana siguiente a la última con datos (o la semana actual si no hay nada).
-  if (otrosSemana[cat] === null){
-    const m = maxSemanaOtros(cat);
-    otrosSemana[cat] = m > 0 ? m + 1 : semanaActual;
+  if (gasSemana === null){
+    const m = maxSemanaGas();
+    gasSemana = m > 0 ? m + 1 : semanaActual;
   }
-  pintarOtros(cat);
+  pintarGas();
 }
-function pintarOtros(cat){
-  const cfg = OTROS[cat];
-  const bloques = cfg.items.map(it => `
+function pintarGas(){
+  const bloques = GAS.items.map(it => `
     <div class="kg-bloque">
       <h3>${esc(it.titulo)}</h3>
-      <div class="estado"><span class="badge no" id="badgeOtro_${it.clave}">Sin registrar</span></div>
-      <label>Consumo (${esc(cfg.unidad)})</label>
-      <input id="inputOtro_${it.clave}" class="campo" type="number" inputmode="decimal" step="any" placeholder="${esc(cfg.placeholder)}">
+      <div class="estado"><span class="badge no" id="badgeGas_${it.clave}">Sin registrar</span></div>
+      <label>Consumo (${esc(GAS.unidad)})</label>
+      <input id="inputGas_${it.clave}" class="campo" type="number" inputmode="decimal" step="any" placeholder="${esc(GAS.placeholder)}">
     </div>`).join("");
-  const columnas = cfg.items.length === 1 ? "1fr" : "1fr 1fr";
   app.innerHTML = `
     <div class="semana-box" style="padding:14px 16px;">
       <label>Semana a registrar</label>
-      <input id="inputSemanaOtro" class="campo" type="number" inputmode="numeric" min="1" max="60" value="${otrosSemana[cat]}">
+      <input id="inputSemanaGas" class="campo" type="number" inputmode="numeric" min="1" max="60" value="${gasSemana}">
     </div>
-    <div class="kg-grid" style="grid-template-columns:${columnas};">${bloques}</div>
-    <div id="errorOtro" class="mensaje-error"></div>
-    <div id="okOtro" class="mensaje-ok"></div>
-    <button class="btn-guardar" id="btnGuardarOtro">Guardar</button>
+    <div class="kg-grid">${bloques}</div>
+    <div id="errorGas" class="mensaje-error"></div>
+    <div id="okGas" class="mensaje-ok"></div>
+    <button class="btn-guardar" id="btnGuardarGas">Guardar</button>
     <p class="subtitulo-seccion" style="margin-top:26px;">Últimas semanas registradas</p>
-    <div class="grafico-box"><div id="histOtro" class="tabla-scroll"></div></div>
+    <div class="grafico-box"><div id="histGas" class="tabla-scroll"></div></div>
   `;
-  document.getElementById("inputSemanaOtro").onchange = () => cambiarSemanaOtro(cat);
-  document.getElementById("btnGuardarOtro").onclick = () => guardarOtros(cat);
-  llenarCamposOtros(cat);
+  document.getElementById("inputSemanaGas").onchange = cambiarSemanaGas;
+  document.getElementById("btnGuardarGas").onclick = guardarGas;
+  llenarCamposGas();
 }
 // Rellena casillas y etiquetas con lo ya guardado para la semana elegida.
-function llenarCamposOtros(cat){
-  const cfg = OTROS[cat], sem = otrosSemana[cat];
-  cfg.items.forEach(it => {
-    const ya = otroRegistrado(it.clave, sem);
-    document.getElementById("inputOtro_" + it.clave).value = ya ? otrosGlobal[it.clave][sem] : "";
-    const badge = document.getElementById("badgeOtro_" + it.clave);
+function llenarCamposGas(){
+  GAS.items.forEach(it => {
+    const ya = gasRegistrado(it.clave, gasSemana);
+    document.getElementById("inputGas_" + it.clave).value = ya ? gasGlobal[it.clave][gasSemana] : "";
+    const badge = document.getElementById("badgeGas_" + it.clave);
     badge.className = "badge " + (ya ? "si" : "no");
     badge.textContent = ya ? "Ya registrado" : "Sin registrar";
   });
-  document.getElementById("btnGuardarOtro").textContent =
-    cfg.items.some(it => otroRegistrado(it.clave, sem)) ? "Actualizar" : "Guardar";
-  pintarHistorialOtros(cat);
+  document.getElementById("btnGuardarGas").textContent =
+    GAS.items.some(it => gasRegistrado(it.clave, gasSemana)) ? "Actualizar" : "Guardar";
+  pintarHistorialGas();
 }
-function pintarHistorialOtros(cat){
-  const cfg = OTROS[cat];
+function pintarHistorialGas(){
   const set = new Set();
-  cfg.items.forEach(it => Object.keys(otrosGlobal[it.clave]).forEach(s => set.add(Number(s))));
+  GAS.items.forEach(it => Object.keys(gasGlobal[it.clave]).forEach(s => set.add(Number(s))));
   const semanas = Array.from(set).sort((a, b) => b - a).slice(0, 8);
-  const cont = document.getElementById("histOtro");
+  const cont = document.getElementById("histGas");
   if (!semanas.length){
     cont.innerHTML = `<div class="vacio" style="margin:10px 0;">Todavía no hay registros.</div>`;
     return;
   }
-  const filas = semanas.map(s => `<tr><td>Semana ${s}</td>${cfg.items.map(it => `<td>${fmtN(otrosGlobal[it.clave][s], 2)}</td>`).join("")}</tr>`).join("");
+  const filas = semanas.map(s => `<tr><td>Semana ${s}</td>${GAS.items.map(it => `<td>${fmtN(gasGlobal[it.clave][s], 2)}</td>`).join("")}</tr>`).join("");
   cont.innerHTML = `
     <table class="tabla-var">
-      <thead><tr><th>Semana</th>${cfg.items.map(it => `<th>${esc(it.titulo)} (${esc(cfg.unidad)})</th>`).join("")}</tr></thead>
+      <thead><tr><th>Semana</th>${GAS.items.map(it => `<th>${esc(it.titulo)} (${esc(GAS.unidad)})</th>`).join("")}</tr></thead>
       <tbody>${filas}</tbody>
     </table>`;
 }
-function cambiarSemanaOtro(cat){
-  const n = parseInt(document.getElementById("inputSemanaOtro").value, 10);
-  const errorDiv = document.getElementById("errorOtro");
-  document.getElementById("okOtro").textContent = "";
+function cambiarSemanaGas(){
+  const n = parseInt(document.getElementById("inputSemanaGas").value, 10);
+  const errorDiv = document.getElementById("errorGas");
+  document.getElementById("okGas").textContent = "";
   if (isNaN(n) || n < 1 || n > 60){
     errorDiv.textContent = "Ingresa un número de semana válido (1-60).";
     return;
   }
   errorDiv.textContent = "";
-  otrosSemana[cat] = n;
-  llenarCamposOtros(cat);
+  gasSemana = n;
+  llenarCamposGas();
 }
-async function guardarOtros(cat){
-  const cfg = OTROS[cat];
-  const errorDiv = document.getElementById("errorOtro");
-  const okDiv = document.getElementById("okOtro");
-  const btn = document.getElementById("btnGuardarOtro");
+async function guardarGas(){
+  const errorDiv = document.getElementById("errorGas");
+  const okDiv = document.getElementById("okGas");
+  const btn = document.getElementById("btnGuardarGas");
   okDiv.textContent = "";
-  const semana = parseInt(document.getElementById("inputSemanaOtro").value, 10);
+  const semana = parseInt(document.getElementById("inputSemanaGas").value, 10);
   if (isNaN(semana) || semana < 1 || semana > 60){
     errorDiv.textContent = "Ingresa un número de semana válido (1-60).";
     return;
   }
-  otrosSemana[cat] = semana;
+  gasSemana = semana;
   const tareas = [];
-  for (const it of cfg.items){
-    const texto = String(document.getElementById("inputOtro_" + it.clave).value).trim().replace(",", ".");
+  for (const it of GAS.items){
+    const texto = String(document.getElementById("inputGas_" + it.clave).value).trim().replace(",", ".");
     if (texto === ""){
       // vacío: solo se manda si había un dato guardado (para borrarlo)
-      if (otroRegistrado(it.clave, semana)) tareas.push({ it, valor: "" });
+      if (gasRegistrado(it.clave, semana)) tareas.push({ it, valor: "" });
       continue;
     }
     const valor = parseFloat(texto);
@@ -1036,27 +1184,178 @@ async function guardarOtros(cat){
   const fallos = [];
   await Promise.all(tareas.map(async t => {
     try{
-      olvidarPrecarga();
-      const resp = await fetch(BASE_URL, {
-        method: "POST",
-        body: JSON.stringify({ accion:"guardarConsumo", clave: t.it.clave, semana, valor: t.valor })
-      });
-      const data = await resp.json();
-      if (!data.ok) throw new Error(data.error || "Error desconocido");
-      if (t.valor === "") delete otrosGlobal[t.it.clave][semana];
-      else otrosGlobal[t.it.clave][semana] = t.valor;
+      const r = (t.valor === "")
+        ? await sb.from("gas_semanal").delete().eq("semana", semana).eq("medicion", t.it.clave)
+        : await sb.from("gas_semanal").upsert({ semana, medicion: t.it.clave, valor: t.valor }, { onConflict: "semana,medicion" });
+      if (r.error) throw new Error(r.error.message);
+      if (t.valor === "") delete gasGlobal[t.it.clave][semana];
+      else gasGlobal[t.it.clave][semana] = t.valor;
     }catch(e){
       fallos.push(`${t.it.titulo}: ${e.message}`);
     }
   }));
   btn.disabled = false;
-  if (vistaActual !== cat) return;
-  llenarCamposOtros(cat);
+  if (vistaActual !== "gas") return;
+  llenarCamposGas();
   if (fallos.length){
     btn.textContent = textoOriginal;
     errorDiv.textContent = "No se pudo guardar — " + fallos.join(" | ");
   }else{
     okDiv.textContent = `✓ Semana ${semana} guardada.`;
+  }
+}
+/* =========================================================
+   PANTALLA: Energía — carga de archivo Excel
+   El archivo se guarda en el Storage de Supabase (bucket
+   "energia") y queda registrado en la tabla energia_archivos.
+========================================================= */
+const MAX_MB_ENERGIA = 20;
+
+function nombreSeguro(nombre){
+  return String(nombre).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+function formatearTamano(bytes){
+  const b = Number(bytes);
+  if (!b) return "";
+  return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+}
+async function renderEnergia(){
+  app.innerHTML = `
+    <p class="subtitulo">Sube el archivo Excel con los consumos de energía.</p>
+    <div class="linea-box">
+      <div style="padding:16px;">
+        <label>Archivo (.xlsx, .xls o .csv · máx. ${MAX_MB_ENERGIA} MB)</label>
+        <input id="inputArchivoEnergia" class="campo" type="file" accept=".xlsx,.xls,.csv">
+        <div id="errorEnergia" class="mensaje-error"></div>
+        <div id="okEnergia" class="mensaje-ok"></div>
+        <button class="btn-guardar" id="btnSubirEnergia">Subir archivo</button>
+      </div>
+    </div>
+    <p class="subtitulo-seccion" style="margin-top:26px;">Archivos cargados</p>
+    <div id="listaEnergia"><div class="cargando"><div class="spinner"></div>Cargando...</div></div>
+  `;
+  document.getElementById("btnSubirEnergia").onclick = subirArchivoEnergia;
+  await cargarArchivosEnergia();
+}
+async function cargarArchivosEnergia(){
+  let filas = [];
+  let errorMsg = null;
+  try{
+    const { data, error } = await sb.from("energia_archivos").select("id,created_at,nombre,ruta,tamano").order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    filas = data;
+  }catch(e){
+    errorMsg = e.message;
+  }
+  if (vistaActual !== "energia") return;
+  const cont = document.getElementById("listaEnergia");
+  if (errorMsg){
+    cont.innerHTML = `<div class="mensaje-error">No se pudo cargar la lista: ${esc(errorMsg)}</div>`;
+    return;
+  }
+  if (!filas.length){
+    cont.innerHTML = `<div class="vacio" style="margin-top:10px;">Todavía no se ha subido ningún archivo.</div>`;
+    return;
+  }
+  cont.innerHTML = "";
+  filas.forEach(f => {
+    const fila = document.createElement("div");
+    fila.className = "archivo-fila";
+    const info = document.createElement("div");
+    info.className = "archivo-info";
+    const nom = document.createElement("div");
+    nom.className = "archivo-nombre";
+    nom.textContent = f.nombre;
+    const meta = document.createElement("div");
+    meta.className = "archivo-meta";
+    meta.textContent = new Date(f.created_at).toLocaleString("es-PE") + (f.tamano ? " · " + formatearTamano(f.tamano) : "");
+    info.appendChild(nom);
+    info.appendChild(meta);
+    const acciones = document.createElement("div");
+    acciones.className = "archivo-acciones";
+    const bDesc = document.createElement("button");
+    bDesc.className = "link-actualizar";
+    bDesc.textContent = "Descargar";
+    bDesc.onclick = () => descargarArchivoEnergia(f);
+    const bDel = document.createElement("button");
+    bDel.className = "btn-x";
+    bDel.textContent = "Eliminar";
+    bDel.onclick = () => eliminarArchivoEnergia(f);
+    acciones.appendChild(bDesc);
+    acciones.appendChild(bDel);
+    fila.appendChild(info);
+    fila.appendChild(acciones);
+    cont.appendChild(fila);
+  });
+}
+async function subirArchivoEnergia(){
+  const input = document.getElementById("inputArchivoEnergia");
+  const errorDiv = document.getElementById("errorEnergia");
+  const okDiv = document.getElementById("okEnergia");
+  const btn = document.getElementById("btnSubirEnergia");
+  okDiv.textContent = "";
+  const f = input.files && input.files[0];
+  if (!f){
+    errorDiv.textContent = "Elige un archivo primero.";
+    return;
+  }
+  if (!/\.(xlsx|xls|csv)$/i.test(f.name)){
+    errorDiv.textContent = "El archivo debe ser Excel (.xlsx, .xls) o .csv.";
+    return;
+  }
+  if (f.size > MAX_MB_ENERGIA * 1048576){
+    errorDiv.textContent = `El archivo supera los ${MAX_MB_ENERGIA} MB.`;
+    return;
+  }
+  errorDiv.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Subiendo...";
+  const ruta = `${Date.now()}_${nombreSeguro(f.name)}`;
+  let subido = false;
+  try{
+    const up = await sb.storage.from(BUCKET_ENERGIA).upload(ruta, f, { contentType: f.type || "application/octet-stream", upsert: false });
+    if (up.error) throw new Error(up.error.message);
+    subido = true;
+    const ins = await sb.from("energia_archivos").insert({ nombre: f.name, ruta, tamano: f.size });
+    if (ins.error) throw new Error(ins.error.message);
+    if (vistaActual !== "energia") return;
+    input.value = "";
+    okDiv.textContent = `✓ "${f.name}" subido.`;
+    await cargarArchivosEnergia();
+  }catch(e){
+    if (subido){ try{ await sb.storage.from(BUCKET_ENERGIA).remove([ruta]); }catch(_){} }
+    if (vistaActual === "energia") errorDiv.textContent = "No se pudo subir: " + e.message;
+  }finally{
+    if (vistaActual === "energia"){
+      btn.disabled = false;
+      btn.textContent = "Subir archivo";
+    }
+  }
+}
+async function descargarArchivoEnergia(f){
+  try{
+    const { data, error } = await sb.storage.from(BUCKET_ENERGIA).createSignedUrl(f.ruta, 120, { download: f.nombre });
+    if (error) throw new Error(error.message);
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = f.nombre;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }catch(e){
+    toast("No se pudo descargar: " + e.message);
+  }
+}
+async function eliminarArchivoEnergia(f){
+  if (!confirm(`¿Eliminar "${f.nombre}"? Esta acción no se puede deshacer.`)) return;
+  try{
+    const rm = await sb.storage.from(BUCKET_ENERGIA).remove([f.ruta]);
+    if (rm.error) throw new Error(rm.error.message);
+    const del = await sb.from("energia_archivos").delete().eq("id", f.id);
+    if (del.error) throw new Error(del.error.message);
+    await cargarArchivosEnergia();
+  }catch(e){
+    toast("No se pudo eliminar: " + e.message);
   }
 }
 /* =========================================================
@@ -1066,6 +1365,7 @@ async function renderDiario(){
   if (!lineasDiarioGlobal.length){
     app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando mediciones...</div>`;
     await cargarLineasDiario();
+    if (vistaActual !== "agua_planta") return;
   }
   const yaEnCache = Object.prototype.hasOwnProperty.call(cacheLecturasPorFecha, fechaDiarioActual);
   lecturasDiario = yaEnCache ? cacheLecturasPorFecha[fechaDiarioActual] : {};
@@ -1089,8 +1389,9 @@ async function renderDiario(){
   `;
   renderListaDiario(!yaEnCache);
   if (!yaEnCache){
-    await cargarLecturasDiario();
-    cacheLecturasPorFecha[fechaDiarioActual] = lecturasDiario;
+    const ok = await cargarLecturasDiario();
+    if (vistaActual !== "agua_planta") return;
+    if (ok) cacheLecturasPorFecha[fechaDiarioActual] = lecturasDiario;
     renderListaDiario(false);
   }
 }
@@ -1115,17 +1416,22 @@ async function refrescarFechaDiario(){
 }
 async function cargarLecturasDiario(){
   try{
-    const data = await getJSON(`${BASE_URL}?action=lecturas&tipo=diario&fecha=${fechaDiarioActual}`);
-    lecturasDiario = (data.ok && data.lecturas) ? data.lecturas : {};
+    const { data, error } = await sb.from("lecturas_diarias").select("medidor_num,lectura").eq("fecha", fechaDiarioActual);
+    if (error) throw new Error(error.message);
+    lecturasDiario = {};
+    data.forEach(r => { lecturasDiario[Number(r.medidor_num)] = Number(r.lectura); });
+    return true;
   }catch(e){
     lecturasDiario = {};
+    toast("No se pudieron cargar las lecturas: " + e.message);
+    return false;
   }
 }
 function renderListaDiario(cargandoEstado){
   const cont = document.getElementById("listaDiario");
   cont.innerHTML = "";
   if (!lineasDiarioGlobal.length){
-    cont.innerHTML = `<div class="vacio">No se pudieron cargar las mediciones. Revisa que BASE_URL apunte a tu Apps Script.</div>`;
+    cont.innerHTML = `<div class="vacio">No se pudieron cargar las mediciones. Revisa la conexión con Supabase y que las tablas estén creadas.</div>`;
     return;
   }
   lineasDiarioGlobal.forEach(l => {
@@ -1177,12 +1483,10 @@ async function guardarLecturaDiario(medidorNum, box){
   const textoOriginal = btn.textContent;
   btn.textContent = "Guardando...";
   try{
-    olvidarPrecarga(); const resp = await fetch(BASE_URL, {
-      method: "POST",
-      body: JSON.stringify({ accion:"guardarLectura", tipo:"diario", medidorNum, fecha: fechaDiarioActual, lectura: valor })
-    });
-    const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || "Error desconocido");
+    const { error } = await sb.from("lecturas_diarias").upsert(
+      { medidor_num: medidorNum, fecha: fechaDiarioActual, semana: semanaDeFecha(fechaDiarioActual), lectura: valor },
+      { onConflict: "medidor_num,fecha" });
+    if (error) throw new Error(error.message);
     lecturasDiario[medidorNum] = valor;
     cacheLecturasPorFecha[fechaDiarioActual] = lecturasDiario;
     consumoDiarioGlobal = null;
@@ -1195,105 +1499,31 @@ async function guardarLecturaDiario(medidorNum, box){
   }
 }
 /* =========================================================
-   PANTALLA: Agregar línea / medición
-========================================================= */
-function renderAgregar(){
-  app.innerHTML = `
-    <p class="subtitulo">Agrega una línea nueva, en Equipos (Semanal) o en Planta (Diario).</p>
-    <div class="linea-box">
-      <div style="padding:16px;">
-        <label>Tipo de línea</label>
-        <select id="selTipoAgregar" class="campo">
-          <option value="semanal">Equipos (Semanal)</option>
-          <option value="diario">Planta (Diario)</option>
-        </select>
-        <div id="campoNumMedidor" style="margin-top:12px;">
-          <label>Número de medidor</label>
-          <input id="inputNumMedidor" class="campo" type="number" min="1" placeholder="Ej: 17">
-        </div>
-        <div id="notaDiario" style="display:none;margin-top:12px;font-size:12.5px;color:var(--gris);">
-          El número de medición se asigna automáticamente.
-        </div>
-        <div style="margin-top:12px;">
-          <label>Nombre</label>
-          <input id="inputNuevaLinea" class="campo" type="text" placeholder="Ej: TUNEL DE CONGELADO">
-        </div>
-        <div id="errorAgregar" class="mensaje-error"></div>
-        <div id="okAgregar" class="mensaje-ok"></div>
-        <button class="btn-guardar" onclick="guardarNuevaLinea()">Agregar</button>
-      </div>
-    </div>
-  `;
-  document.getElementById("selTipoAgregar").onchange = (e) => {
-    const esDiario = e.target.value === "diario";
-    document.getElementById("campoNumMedidor").style.display = esDiario ? "none" : "block";
-    document.getElementById("notaDiario").style.display = esDiario ? "block" : "none";
-  };
-}
-async function guardarNuevaLinea(){
-  const tipo = document.getElementById("selTipoAgregar").value;
-  const inputNum = document.getElementById("inputNumMedidor");
-  const inputNombre = document.getElementById("inputNuevaLinea");
-  const errorDiv = document.getElementById("errorAgregar");
-  const okDiv = document.getElementById("okAgregar");
-  const nombre = inputNombre.value.trim();
-
-  let medidorNum = null;
-  if (tipo === "semanal"){
-    medidorNum = parseInt(inputNum.value, 10);
-    if (isNaN(medidorNum) || medidorNum <= 0){
-      errorDiv.textContent = "Ingresa un número de medidor válido.";
-      okDiv.textContent = "";
-      return;
-    }
-  }
-  if (!nombre){
-    errorDiv.textContent = "Ingresa un nombre.";
-    okDiv.textContent = "";
-    return;
-  }
-  errorDiv.textContent = "";
-  try{
-    const body = { accion:"agregarLinea", tipo, nombre };
-    if (tipo === "semanal") body.medidorNum = medidorNum;
-    olvidarPrecarga(); const resp = await fetch(BASE_URL, { method: "POST", body: JSON.stringify(body) });
-    const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || "Error desconocido");
-    if (tipo === "semanal"){
-      lineasGlobal = await obtenerLineasDesdeBackend("semanal");
-      consumoGlobal = null;
-    }else{
-      lineasDiarioGlobal = await obtenerLineasDesdeBackend("diario");
-      consumoDiarioGlobal = null;
-    }
-    okDiv.textContent = `✓ Agregado como MEDIDOR ${data.medidorNum} — ${data.nombre}`;
-    inputNum.value = "";
-    inputNombre.value = "";
-  }catch(e){
-    okDiv.textContent = "";
-    errorDiv.textContent = "No se pudo agregar: " + e.message;
-  }
-}
-/* =========================================================
    PANTALLA: Análisis (Equipos Semanal + Planta Diario)
 ========================================================= */
 async function renderAnalisis(){
   app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando datos...</div>`;
-  // Todo se pide en paralelo para que la pantalla abra más rápido.
-  const pLineas = lineasGlobal.length ? Promise.resolve() : cargarLineas();
-  const pLineasD = lineasDiarioGlobal.length ? Promise.resolve() : cargarLineasDiario();
-  const pKg = (kgGlobal === null) ? cargarKg() : Promise.resolve(true);
-  const pSem = (consumoGlobal !== null) ? Promise.resolve(null) : getJSON(BASE_URL + "?action=consumo&tipo=semanal")
-    .then(d => { if (!d.ok) throw new Error(d.error || "Error desconocido"); consumoGlobal = d.data; return null; })
-    .catch(e => e.message);
-  const pDia = (consumoDiarioGlobal !== null) ? Promise.resolve() : getJSON(BASE_URL + "?action=consumo&tipo=diario")
-    .then(d => { consumoDiarioGlobal = d.ok ? d.data : []; })
-    .catch(() => { consumoDiarioGlobal = []; });
-  const [, , , errSem] = await Promise.all([pLineas, pLineasD, pKg, pSem, pDia]).then(r => [r[0], r[1], r[2], r[3]]);
-  if (errSem){
-    app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${errSem}</div>`;
+  try{
+    await Promise.all([
+      lineasGlobal.length ? null : cargarLineas(),
+      lineasDiarioGlobal.length ? null : cargarLineasDiario()
+    ]);
+    await Promise.all([
+      consumoGlobal !== null ? null : cargarConsumoSemanal(),
+      consumoDiarioGlobal !== null ? null : cargarConsumoDiario().catch(e => {
+        consumoDiarioGlobal = [];
+        toast("No se pudo cargar el consumo diario: " + e.message);
+      }),
+      kgGlobal !== null ? null : cargarKg().then(r => {
+        if (r !== true) toast("No se pudieron cargar los kg producidos: " + r);
+      })
+    ]);
+  }catch(e){
+    if (vistaActual !== "dashboard") return;
+    app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${esc(e.message)}</div>`;
     return;
   }
+  if (vistaActual !== "dashboard") return;
   renderPantallaAnalisis();
 }
 async function refrescarAnalisis(){
@@ -2199,9 +2429,7 @@ function renderLineChart(cont, cfg){
 /* =========================================================
    ARRANQUE
 ========================================================= */
-precargarTodo();
-actualizarTabs();
-irARegistro();
+irA("menu");
 </script>
 </body>
 </html>
