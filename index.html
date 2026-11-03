@@ -362,6 +362,8 @@
     <button class="tab tab-principal" id="tabRegistro" onclick="irARegistro()">Equipos (Semanal)</button>
     <button class="tab tab-verde" id="tabDiario" onclick="irADiario()">Planta (Diario)</button>
     <button class="tab" id="tabKg" onclick="irAKg()">Kg Producidos (Semanal)</button>
+    <button class="tab" id="tabGas" onclick="irAGas()">Gas (Semanal)</button>
+    <button class="tab" id="tabEnergia" onclick="irAEnergia()">Energía (Semanal)</button>
     <button class="tab" id="tabConsumo" onclick="irAAnalisis()">Análisis</button>
     <button class="tab" id="tabAgregar" onclick="irAAgregar()">Agregar línea</button>
   </div>
@@ -460,6 +462,8 @@ function actualizarTabs(){
   document.getElementById("tabRegistro").classList.toggle("activo", vistaActual === "registro");
   document.getElementById("tabDiario").classList.toggle("activo", vistaActual === "diario");
   document.getElementById("tabKg").classList.toggle("activo", vistaActual === "kg");
+  document.getElementById("tabGas").classList.toggle("activo", vistaActual === "gas");
+  document.getElementById("tabEnergia").classList.toggle("activo", vistaActual === "energia");
   document.getElementById("tabConsumo").classList.toggle("activo", vistaActual === "consumo");
   document.getElementById("tabAgregar").classList.toggle("activo", vistaActual === "agregar");
 }
@@ -485,6 +489,7 @@ function precargarTodo(){
   precargar(u + "lecturas&tipo=semanal&semana=" + semanaActual);
   precargar(u + "lecturas&tipo=diario&fecha=" + fechaDiarioActual);
   precargar(u + "kg");
+  precargar(u + "consumos");
   precargar(u + "consumo&tipo=semanal");
   precargar(u + "consumo&tipo=diario");
 }
@@ -545,6 +550,16 @@ async function irAKg(){
   vistaActual = "kg";
   actualizarTabs();
   await renderKg();
+}
+async function irAGas(){
+  vistaActual = "gas";
+  actualizarTabs();
+  await renderOtros("gas");
+}
+async function irAEnergia(){
+  vistaActual = "energia";
+  actualizarTabs();
+  await renderOtros("energia");
 }
 async function irAAnalisis(){
   vistaActual = "consumo";
@@ -841,6 +856,202 @@ async function guardarKgSemana(){
   }));
   btn.disabled = false;
   llenarCamposKg();
+  if (fallos.length){
+    btn.textContent = textoOriginal;
+    errorDiv.textContent = "No se pudo guardar — " + fallos.join(" | ");
+  }else{
+    okDiv.textContent = `✓ Semana ${semana} guardada.`;
+  }
+}
+/* =========================================================
+   PANTALLAS: Gas (Semanal) y Energía (Semanal)
+   Igual que Kg Producidos: se elige UNA semana y se ingresa el
+   consumo de esa semana. Gas tiene 2 mediciones; Energía, 1.
+   Para cambiar nombres o unidades, edita la tabla OTROS.
+========================================================= */
+const OTROS = {
+  gas: {
+    unidad: "m³",
+    placeholder: "Ej: 1250.5",
+    items: [
+      { clave: "gas1", titulo: "Gas — Medición 1" },
+      { clave: "gas2", titulo: "Gas — Medición 2" }
+    ]
+  },
+  energia: {
+    unidad: "kWh",
+    placeholder: "Ej: 18500",
+    items: [
+      { clave: "energia", titulo: "Consumo de energía" }
+    ]
+  }
+};
+let otrosGlobal = null;                       // { clave: { semana: valor } }
+const otrosSemana = { gas: null, energia: null };
+
+function otroRegistrado(clave, semana){
+  return Object.prototype.hasOwnProperty.call(otrosGlobal[clave] || {}, semana);
+}
+async function cargarOtros(){
+  try{
+    const data = await getJSON(`${BASE_URL}?action=consumos`);
+    if (!data.ok) throw new Error(data.error || "Error desconocido");
+    if (!data.consumos) throw new Error("El Apps Script aún no tiene action=consumos. Actualízalo e impleméntalo de nuevo.");
+    otrosGlobal = {};
+    Object.keys(OTROS).forEach(cat => OTROS[cat].items.forEach(it => {
+      otrosGlobal[it.clave] = data.consumos[it.clave] || {};
+    }));
+    return true;
+  }catch(e){
+    otrosGlobal = null;
+    return e.message;
+  }
+}
+function maxSemanaOtros(cat){
+  let max = 0;
+  OTROS[cat].items.forEach(it => Object.keys(otrosGlobal[it.clave]).forEach(s => { if (Number(s) > max) max = Number(s); }));
+  return max;
+}
+async function renderOtros(cat){
+  if (otrosGlobal === null){
+    app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando...</div>`;
+    const r = await cargarOtros();
+    if (vistaActual !== cat) return;   // el usuario cambió de pestaña mientras cargaba
+    if (r !== true){
+      app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${esc(r)}</div>`;
+      return;
+    }
+  }
+  // Por defecto: la semana siguiente a la última con datos (o la semana actual si no hay nada).
+  if (otrosSemana[cat] === null){
+    const m = maxSemanaOtros(cat);
+    otrosSemana[cat] = m > 0 ? m + 1 : semanaActual;
+  }
+  pintarOtros(cat);
+}
+function pintarOtros(cat){
+  const cfg = OTROS[cat];
+  const bloques = cfg.items.map(it => `
+    <div class="kg-bloque">
+      <h3>${esc(it.titulo)}</h3>
+      <div class="estado"><span class="badge no" id="badgeOtro_${it.clave}">Sin registrar</span></div>
+      <label>Consumo (${esc(cfg.unidad)})</label>
+      <input id="inputOtro_${it.clave}" class="campo" type="number" inputmode="decimal" step="any" placeholder="${esc(cfg.placeholder)}">
+    </div>`).join("");
+  const columnas = cfg.items.length === 1 ? "1fr" : "1fr 1fr";
+  app.innerHTML = `
+    <div class="semana-box" style="padding:14px 16px;">
+      <label>Semana a registrar</label>
+      <input id="inputSemanaOtro" class="campo" type="number" inputmode="numeric" min="1" max="60" value="${otrosSemana[cat]}">
+    </div>
+    <div class="kg-grid" style="grid-template-columns:${columnas};">${bloques}</div>
+    <div id="errorOtro" class="mensaje-error"></div>
+    <div id="okOtro" class="mensaje-ok"></div>
+    <button class="btn-guardar" id="btnGuardarOtro">Guardar</button>
+    <p class="subtitulo-seccion" style="margin-top:26px;">Últimas semanas registradas</p>
+    <div class="grafico-box"><div id="histOtro" class="tabla-scroll"></div></div>
+  `;
+  document.getElementById("inputSemanaOtro").onchange = () => cambiarSemanaOtro(cat);
+  document.getElementById("btnGuardarOtro").onclick = () => guardarOtros(cat);
+  llenarCamposOtros(cat);
+}
+// Rellena casillas y etiquetas con lo ya guardado para la semana elegida.
+function llenarCamposOtros(cat){
+  const cfg = OTROS[cat], sem = otrosSemana[cat];
+  cfg.items.forEach(it => {
+    const ya = otroRegistrado(it.clave, sem);
+    document.getElementById("inputOtro_" + it.clave).value = ya ? otrosGlobal[it.clave][sem] : "";
+    const badge = document.getElementById("badgeOtro_" + it.clave);
+    badge.className = "badge " + (ya ? "si" : "no");
+    badge.textContent = ya ? "Ya registrado" : "Sin registrar";
+  });
+  document.getElementById("btnGuardarOtro").textContent =
+    cfg.items.some(it => otroRegistrado(it.clave, sem)) ? "Actualizar" : "Guardar";
+  pintarHistorialOtros(cat);
+}
+function pintarHistorialOtros(cat){
+  const cfg = OTROS[cat];
+  const set = new Set();
+  cfg.items.forEach(it => Object.keys(otrosGlobal[it.clave]).forEach(s => set.add(Number(s))));
+  const semanas = Array.from(set).sort((a, b) => b - a).slice(0, 8);
+  const cont = document.getElementById("histOtro");
+  if (!semanas.length){
+    cont.innerHTML = `<div class="vacio" style="margin:10px 0;">Todavía no hay registros.</div>`;
+    return;
+  }
+  const filas = semanas.map(s => `<tr><td>Semana ${s}</td>${cfg.items.map(it => `<td>${fmtN(otrosGlobal[it.clave][s], 2)}</td>`).join("")}</tr>`).join("");
+  cont.innerHTML = `
+    <table class="tabla-var">
+      <thead><tr><th>Semana</th>${cfg.items.map(it => `<th>${esc(it.titulo)} (${esc(cfg.unidad)})</th>`).join("")}</tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
+function cambiarSemanaOtro(cat){
+  const n = parseInt(document.getElementById("inputSemanaOtro").value, 10);
+  const errorDiv = document.getElementById("errorOtro");
+  document.getElementById("okOtro").textContent = "";
+  if (isNaN(n) || n < 1 || n > 60){
+    errorDiv.textContent = "Ingresa un número de semana válido (1-60).";
+    return;
+  }
+  errorDiv.textContent = "";
+  otrosSemana[cat] = n;
+  llenarCamposOtros(cat);
+}
+async function guardarOtros(cat){
+  const cfg = OTROS[cat];
+  const errorDiv = document.getElementById("errorOtro");
+  const okDiv = document.getElementById("okOtro");
+  const btn = document.getElementById("btnGuardarOtro");
+  okDiv.textContent = "";
+  const semana = parseInt(document.getElementById("inputSemanaOtro").value, 10);
+  if (isNaN(semana) || semana < 1 || semana > 60){
+    errorDiv.textContent = "Ingresa un número de semana válido (1-60).";
+    return;
+  }
+  otrosSemana[cat] = semana;
+  const tareas = [];
+  for (const it of cfg.items){
+    const texto = String(document.getElementById("inputOtro_" + it.clave).value).trim().replace(",", ".");
+    if (texto === ""){
+      // vacío: solo se manda si había un dato guardado (para borrarlo)
+      if (otroRegistrado(it.clave, semana)) tareas.push({ it, valor: "" });
+      continue;
+    }
+    const valor = parseFloat(texto);
+    if (isNaN(valor)){
+      errorDiv.textContent = `Ingresa un número válido en ${it.titulo}.`;
+      return;
+    }
+    tareas.push({ it, valor });
+  }
+  if (!tareas.length){
+    errorDiv.textContent = "Ingresa al menos un valor.";
+    return;
+  }
+  errorDiv.textContent = "";
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Guardando...";
+  const fallos = [];
+  await Promise.all(tareas.map(async t => {
+    try{
+      olvidarPrecarga();
+      const resp = await fetch(BASE_URL, {
+        method: "POST",
+        body: JSON.stringify({ accion:"guardarConsumo", clave: t.it.clave, semana, valor: t.valor })
+      });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error || "Error desconocido");
+      if (t.valor === "") delete otrosGlobal[t.it.clave][semana];
+      else otrosGlobal[t.it.clave][semana] = t.valor;
+    }catch(e){
+      fallos.push(`${t.it.titulo}: ${e.message}`);
+    }
+  }));
+  btn.disabled = false;
+  if (vistaActual !== cat) return;
+  llenarCamposOtros(cat);
   if (fallos.length){
     btn.textContent = textoOriginal;
     errorDiv.textContent = "No se pudo guardar — " + fallos.join(" | ");
