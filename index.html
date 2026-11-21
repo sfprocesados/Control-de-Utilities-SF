@@ -329,6 +329,36 @@
   .lc-leyenda span{display:inline-flex;align-items:center;gap:6px;}
   .lc-leyenda .k{width:12px;height:3px;border-radius:2px;display:inline-block;}
   .nota-chica{font-size:11.5px;color:var(--gris);margin:8px 2px 0;line-height:1.4;}
+  .svg-halo .halo{paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;}
+  .filtros-en-grafico{margin:0 0 12px;flex-wrap:wrap;}
+  .filtros-en-grafico > div{min-width:150px;}
+  .spark-celda{text-align:center !important;}
+  .fila-total td{font-weight:700;background:#f6f8fb;}
+  /* --- Lectura: alerta temprana y cámara IA --- */
+  .lectura-fila{display:flex;gap:8px;align-items:stretch;}
+  .lectura-fila .campo{flex:1;min-width:0;}
+  .linea-cuerpo .lectura-fila .campo{margin-top:10px;}
+  .btn-camara{margin-top:10px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--borde);background:#fff;color:var(--azul);border-radius:10px;padding:0 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+  .btn-camara[disabled]{opacity:.5;}
+  .ia-nota{font-size:12.5px;margin-top:6px;color:var(--gris);}
+  .ia-nota:empty{display:none;}
+  .ia-nota.ok{color:#1d5fa8;}
+  .ia-nota.mal{color:var(--rojo);}
+  .spinner.chico{display:inline-block;width:12px;height:12px;border-width:2px;margin:0 4px -2px 0;}
+  .variacion-box{margin-top:10px;border:1px solid var(--borde);border-radius:10px;padding:8px 12px;background:#f8fafc;font-size:13px;}
+  .variacion-box:empty{display:none;}
+  .variacion-box.con-alerta{border-color:#e8b04a;background:#fff8e8;}
+  .var-fila{display:flex;justify-content:space-between;gap:10px;padding:3px 0;color:#3d4a56;}
+  .var-fila b{color:var(--texto);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .var-fila.sutil{color:var(--gris);}
+  .var-fila.destaca{border-top:1px dashed var(--borde);margin-top:3px;padding-top:6px;}
+  .var-fila.destaca.alta b, .txt-malo{color:#b3261e !important;}
+  .var-aviso{margin-top:6px;color:#8a4b00;font-weight:600;line-height:1.4;}
+  .var-ok{margin-top:6px;color:var(--verde);font-weight:600;}
+  .confirma{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border:2px solid #e8b04a;border-radius:10px;background:#fff;font-size:14px;font-weight:700;color:var(--texto);cursor:pointer;}
+  .confirma[hidden]{display:none;}
+  .confirma input{width:22px;height:22px;accent-color:var(--verde);}
+  .btn-guardar.bloqueado{background:#9aa6b2;}
   /* --- Dashboard: pestañas por servicio y energía --- */
   .dash-tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:4px;margin:0 0 18px;}
   .dash-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:none;background:transparent;border-radius:9px;padding:10px 8px;font:inherit;font-size:13.5px;font-weight:700;color:var(--gris);cursor:pointer;}
@@ -658,10 +688,11 @@ let cacheLecturasPorSemana = {};
 let semanaAbierta = false;
 let lineaAbierta = null;
 let consumoGlobal = null;     // [{medidorNum, nombre, historial:[{semana,fecha,lectura,consumo}]}]
-let filtroLinea = "";
-let filtroTipo = "semana";    // "semana" | "mes"
-let filtroValor = null;
-let ordenGrafico = "desc";    // "desc" (mayor a menor) | "asc" (menor a mayor)
+// Dashboard agua: gráfico de consumo por periodo + Pareto
+let aguaPeriodo = "semana";   // "semana" | "mes"
+let aguaMedidor = null;       // "equipos" | "d:N" (medición diaria) | "e:N" (equipo)
+let aguaTon = "embutidos";    // toneladas para m³/t: "embutidos" | "empacado" | "ambos"
+let aguaSel = null;           // periodo elegido para el Pareto (número de semana o "yyyy-mm")
 // --- Agua · Planta (Diario) ---
 let lineasDiarioGlobal = [];        // [{medidorNum, nombre}]
 let fechaDiarioActual = hoyISO();
@@ -896,6 +927,7 @@ async function renderRegistro(){
     <div id="listaLineas"></div>
   `;
   renderListaLineas(!yaEnCache);
+  asegurarReferencia("semanal");
   if (!yaEnCache){
     const ok = await cargarLecturasSemana();
     if (vistaActual !== "agua_equipos") return;
@@ -964,14 +996,14 @@ function renderListaLineas(cargandoEstado){
       </div>
       <div class="linea-cuerpo ${abierto ? "abierto" : ""}">
         <label>Lectura del medidor${yaRegistrado ? " (editar)" : ""}</label>
-        <input class="campo input-lectura" type="number" inputmode="decimal" step="any"
-               placeholder="Ej: 8607.09" value="${valorActual}">
+        ${htmlCampoLectura("Ej: 8607.09", valorActual)}
         <div class="mensaje-error"></div>
         <button class="btn-guardar">${yaRegistrado ? "Actualizar lectura" : "Guardar lectura"}</button>
       </div>
     `;
     const btnGuardar = box.querySelector(".btn-guardar");
     btnGuardar.onclick = () => guardarLectura(medidorNum, box);
+    if (abierto) activarCampoLectura(box, () => refLecturaSemanal(medidorNum, semanaActual), "semanal");
     cont.appendChild(box);
   });
 }
@@ -988,6 +1020,10 @@ async function guardarLectura(medidorNum, box){
     errorDiv.textContent = "Ingresa un número válido.";
     return;
   }
+  if (box.dataset.alerta === "1" && !box.querySelector(".confirma input").checked){
+    errorDiv.textContent = "Revisa el dato y marca “El dato es correcto (OK)” para poder guardar.";
+    return;
+  }
   errorDiv.textContent = "";
   btn.disabled = true;
   const textoOriginal = btn.textContent;
@@ -1000,6 +1036,7 @@ async function guardarLectura(medidorNum, box){
     lecturasSemana[medidorNum] = valor;
     cacheLecturasPorSemana[semanaActual] = lecturasSemana;
     consumoGlobal = null; // los datos de consumo quedaron desactualizados
+    cargarConsumoSemanal().catch(() => {});   // referencia para la próxima alerta
     lineaAbierta = null;
     renderListaLineas(false);
   }catch(e){
@@ -1007,6 +1044,186 @@ async function guardarLectura(medidorNum, box){
     btn.textContent = textoOriginal;
     errorDiv.textContent = "No se pudo guardar: " + e.message;
   }
+}
+/* =========================================================
+   ALERTA TEMPRANA AL DIGITAR LECTURAS DE AGUA
+   Mientras se escribe se calcula el consumo del periodo y su
+   variación frente al periodo anterior. Si la variación es alta
+   (o la lectura baja), se pide confirmar “El dato es correcto (OK)”.
+========================================================= */
+const ALERTA_VAR_PCT = 30;                         // % de variación que dispara la alerta
+const ALERTA_VAR_MIN = { semanal: 5, diario: 2 };  // y al menos esta diferencia en m³
+let cargandoReferencia = { semanal: false, diario: false };
+function asegurarReferencia(tipo){
+  const lista = tipo === "semanal" ? consumoGlobal : consumoDiarioGlobal;
+  if (lista !== null || cargandoReferencia[tipo]) return;
+  cargandoReferencia[tipo] = true;
+  const p = tipo === "semanal" ? cargarConsumoSemanal() : (lineasDiarioGlobal.length ? cargarConsumoDiario() : Promise.resolve());
+  p.catch(() => {}).finally(() => {
+    cargandoReferencia[tipo] = false;
+    // vuelve a evaluar la línea abierta (sin borrar lo que se está digitando)
+    document.querySelectorAll(".linea-box").forEach(b => { if (b._evaluar) b._evaluar(); });
+  });
+}
+function diasEntre(a, b){
+  const pa = a.split("-").map(Number), pb = b.split("-").map(Number);
+  return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
+}
+// Referencia: lectura anterior, consumo del periodo anterior y lectura siguiente (si se edita un dato pasado)
+function refLecturaSemanal(medidorNum, semana){
+  if (consumoGlobal === null) return null;
+  const l = consumoGlobal.find(x => x.medidorNum === medidorNum);
+  const pts = l ? l.historial.slice().sort((a, b) => a.semana - b.semana) : [];
+  const antes = pts.filter(p => p.semana < semana), despues = pts.filter(p => p.semana > semana);
+  const p1 = antes[antes.length - 1], p2 = antes[antes.length - 2], sig = despues[0];
+  return {
+    actual: `esta semana`,
+    prev: p1 ? { etq: `Sem ${p1.semana}`, lectura: p1.lectura, n: semana - p1.semana } : null,
+    ant: (p1 && p2) ? { etq: `semana ${p1.semana}`, consumo: p1.lectura - p2.lectura, n: p1.semana - p2.semana } : null,
+    sig: sig ? { etq: `Sem ${sig.semana}`, lectura: sig.lectura } : null,
+    unidadN: ["semana", "semanas"]
+  };
+}
+function refLecturaDiaria(medidorNum, fecha){
+  if (consumoDiarioGlobal === null) return null;
+  const l = consumoDiarioGlobal.find(x => x.medidorNum === medidorNum);
+  const pts = l ? l.historial.slice().sort((a, b) => a.fecha < b.fecha ? -1 : 1) : [];
+  const antes = pts.filter(p => p.fecha < fecha), despues = pts.filter(p => p.fecha > fecha);
+  const p1 = antes[antes.length - 1], p2 = antes[antes.length - 2], sig = despues[0];
+  return {
+    actual: `este día`,
+    prev: p1 ? { etq: formatearFechaDMA(p1.fecha), lectura: p1.lectura, n: diasEntre(p1.fecha, fecha) } : null,
+    ant: (p1 && p2) ? { etq: `el ${formatearFechaDMA(p1.fecha).slice(0, 5)}`, consumo: p1.lectura - p2.lectura, n: diasEntre(p2.fecha, p1.fecha) } : null,
+    sig: sig ? { etq: formatearFechaDMA(sig.fecha), lectura: sig.lectura } : null,
+    unidadN: ["día", "días"]
+  };
+}
+function evaluarLectura(valor, ref, tipo){
+  if (ref === null) return { html: `<div class="var-fila sutil">Cargando lecturas anteriores…</div>`, alerta: false };
+  if (!ref.prev) return { html: `<div class="var-fila sutil">Primera lectura de este medidor: no hay dato anterior para comparar.</div>`, alerta: false };
+  const lineas = [`<div class="var-fila"><span>Lectura anterior (${esc(ref.prev.etq)})</span><b>${fmtN(ref.prev.lectura, 2)}</b></div>`];
+  if (valor === null) return { html: lineas.join(""), alerta: false };
+  const consumo = valor - ref.prev.lectura;
+  const avisos = [];
+  let alerta = false;
+  const plural = n => n === 1 ? ref.unidadN[0] : ref.unidadN[1];
+  lineas.push(`<div class="var-fila"><span>Consumo ${ref.actual}${ref.prev.n > 1 ? ` (${ref.prev.n} ${plural(ref.prev.n)})` : ""}</span><b class="${consumo < 0 ? "txt-malo" : ""}">${fmtN(consumo, 2)} m³</b></div>`);
+  if (consumo < 0){
+    alerta = true;
+    avisos.push(`La lectura es <b>menor</b> que la anterior (${fmtN(ref.prev.lectura, 2)}). ¿Se digitó bien? ¿Cambiaron el medidor?`);
+  }
+  if (ref.ant){
+    lineas.push(`<div class="var-fila"><span>Consumo ${esc(ref.ant.etq)}${ref.ant.n > 1 ? ` (${ref.ant.n} ${plural(ref.ant.n)})` : ""}</span><b>${fmtN(ref.ant.consumo, 2)} m³</b></div>`);
+    // Se compara el consumo por semana/día para no castigar huecos entre lecturas
+    const tasa = consumo / ref.prev.n, tasaAnt = ref.ant.consumo / ref.ant.n;
+    if (consumo >= 0 && tasaAnt > 0){
+      const pct = (tasa - tasaAnt) / tasaAnt * 100;
+      const dif = Math.abs(tasa - tasaAnt);
+      const alta = Math.abs(pct) >= ALERTA_VAR_PCT && dif >= ALERTA_VAR_MIN[tipo];
+      const ic = Math.abs(pct) < 0.5 ? "●" : (pct > 0 ? "▲" : "▼");
+      lineas.push(`<div class="var-fila destaca ${alta ? "alta" : ""}"><span>Variación</span><b>${ic} ${pct > 0 ? "+" : ""}${fmtN(pct, 1)}%</b></div>`);
+      if (alta){
+        alerta = true;
+        avisos.push(`Variación de ${pct > 0 ? "+" : ""}${fmtN(pct, 0)}% frente al periodo anterior. Revisa que el número esté bien digitado.`);
+      }
+    }
+  }
+  if (ref.sig && valor > ref.sig.lectura){
+    alerta = true;
+    avisos.push(`La lectura es mayor que la registrada en ${esc(ref.sig.etq)} (${fmtN(ref.sig.lectura, 2)}).`);
+  }
+  const aviso = avisos.length ? `<div class="var-aviso">⚠ ${avisos.join("<br>⚠ ")}</div>` : `<div class="var-ok">✓ Variación dentro de lo normal</div>`;
+  return { html: lineas.join("") + aviso, alerta };
+}
+const ICONO_CAMARA = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>';
+function htmlCampoLectura(placeholder, valor){
+  return `
+    <div class="lectura-fila">
+      <input class="campo input-lectura" type="number" inputmode="decimal" step="any" placeholder="${placeholder}" value="${valor}">
+      <button type="button" class="btn-camara" title="Leer el medidor con la cámara (IA)" aria-label="Leer el medidor con la cámara">${ICONO_CAMARA}<span>Foto</span></button>
+      <input type="file" class="input-foto" accept="image/*" capture="environment" hidden>
+    </div>
+    <div class="ia-nota"></div>
+    <div class="variacion-box"></div>
+    <label class="confirma" hidden><input type="checkbox"> El dato es correcto (OK)</label>`;
+}
+function activarCampoLectura(box, obtenerRef, tipo){
+  const input = box.querySelector(".input-lectura");
+  const varBox = box.querySelector(".variacion-box");
+  const confirma = box.querySelector(".confirma");
+  const check = confirma.querySelector("input");
+  const btn = box.querySelector(".btn-guardar");
+  const errorDiv = box.querySelector(".mensaje-error");
+  const evaluar = () => {
+    const txt = String(input.value).trim();
+    const valor = txt === "" ? null : parseFloat(txt.replace(",", "."));
+    const r = evaluarLectura(isNaN(valor) ? null : valor, obtenerRef(), tipo);
+    varBox.innerHTML = r.html;
+    varBox.className = "variacion-box" + (r.alerta ? " con-alerta" : "");
+    box.dataset.alerta = r.alerta ? "1" : "0";
+    confirma.hidden = !r.alerta;
+    if (!r.alerta) check.checked = false;
+    btn.classList.toggle("bloqueado", r.alerta && !check.checked);
+  };
+  box._evaluar = evaluar;
+  input.addEventListener("input", () => { check.checked = false; errorDiv.textContent = ""; evaluar(); });
+  check.addEventListener("change", () => { errorDiv.textContent = ""; evaluar(); });
+  // Cámara + IA
+  const foto = box.querySelector(".input-foto");
+  box.querySelector(".btn-camara").onclick = () => foto.click();
+  foto.onchange = async () => {
+    const f = foto.files && foto.files[0];
+    foto.value = "";
+    if (!f) return;
+    const nota = box.querySelector(".ia-nota");
+    const btnCam = box.querySelector(".btn-camara");
+    btnCam.disabled = true;
+    nota.className = "ia-nota";
+    nota.innerHTML = `<span class="spinner chico"></span> Leyendo el medidor con IA…`;
+    try{
+      const r = await leerMedidorConIA(f);
+      if (r.lectura === null || r.lectura === undefined || !r.legible){
+        nota.className = "ia-nota mal";
+        nota.textContent = "La IA no pudo leer el número" + (r.comentario ? `: ${r.comentario}` : ".") + " Digítalo manualmente o toma otra foto más cerca y con luz.";
+      }else{
+        input.value = r.lectura;
+        check.checked = false;
+        evaluar();
+        nota.className = "ia-nota ok";
+        nota.textContent = `Leído por IA: ${r.lectura}. Compáralo con el medidor antes de guardar.` + (r.comentario ? ` (${r.comentario})` : "");
+      }
+    }catch(e){
+      nota.className = "ia-nota mal";
+      nota.textContent = "No se pudo usar la IA: " + e.message;
+    }finally{
+      btnCam.disabled = false;
+    }
+  };
+  evaluar();
+}
+/* --- Visión IA (Gemini) vía la función “leer-medidor” de Supabase.
+       La clave de Gemini queda guardada en Supabase, nunca en esta página. --- */
+const FUNCION_IA = "leer-medidor";
+async function imagenABase64(file, maxLado){
+  const bmp = await createImageBitmap(file);
+  const escala = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * escala);
+  c.height = Math.round(bmp.height * escala);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+}
+async function leerMedidorConIA(file){
+  const imagen = await imagenABase64(file, 1600);
+  const { data, error } = await sb.functions.invoke(FUNCION_IA, { body: { imagen, mime: "image/jpeg" } });
+  if (error){
+    let msg = error.message || String(error);
+    try{ const det = await error.context.json(); if (det && det.error) msg = det.error; }catch(_){}
+    throw new Error(msg + ". ¿Está publicada la función “leer-medidor” en Supabase?");
+  }
+  const lectura = data && data.lectura !== null && data.lectura !== undefined ? Number(data.lectura) : null;
+  return { lectura: isNaN(lectura) ? null : lectura, legible: !!(data && data.legible), comentario: data && data.comentario ? String(data.comentario) : "" };
 }
 /* =========================================================
    PANTALLA: Kg Producidos (Semanal) — Embutidos y Empacado
@@ -1743,6 +1960,7 @@ async function renderDiario(){
     <div id="listaDiario"></div>
   `;
   renderListaDiario(!yaEnCache);
+  asegurarReferencia("diario");
   if (!yaEnCache){
     const ok = await cargarLecturasDiario();
     if (vistaActual !== "agua_planta") return;
@@ -1809,14 +2027,14 @@ function renderListaDiario(cargandoEstado){
       </div>
       <div class="linea-cuerpo ${abierto ? "abierto" : ""}">
         <label>Lectura${yaRegistrado ? " (editar)" : ""}</label>
-        <input class="campo input-lectura" type="number" inputmode="decimal" step="any"
-               placeholder="Ej: 120.5" value="${valorActual}">
+        ${htmlCampoLectura("Ej: 120.5", valorActual)}
         <div class="mensaje-error"></div>
         <button class="btn-guardar">${yaRegistrado ? "Actualizar lectura" : "Guardar lectura"}</button>
       </div>
     `;
     const btnGuardar = box.querySelector(".btn-guardar");
     btnGuardar.onclick = () => guardarLecturaDiario(medidorNum, box);
+    if (abierto) activarCampoLectura(box, () => refLecturaDiaria(medidorNum, fechaDiarioActual), "diario");
     cont.appendChild(box);
   });
 }
@@ -1833,6 +2051,10 @@ async function guardarLecturaDiario(medidorNum, box){
     errorDiv.textContent = "Ingresa un número válido.";
     return;
   }
+  if (box.dataset.alerta === "1" && !box.querySelector(".confirma input").checked){
+    errorDiv.textContent = "Revisa el dato y marca “El dato es correcto (OK)” para poder guardar.";
+    return;
+  }
   errorDiv.textContent = "";
   btn.disabled = true;
   const textoOriginal = btn.textContent;
@@ -1845,6 +2067,7 @@ async function guardarLecturaDiario(medidorNum, box){
     lecturasDiario[medidorNum] = valor;
     cacheLecturasPorFecha[fechaDiarioActual] = lecturasDiario;
     consumoDiarioGlobal = null;
+    cargarConsumoDiario().catch(() => {});
     lineaDiarioAbierta = null;
     renderListaDiario(false);
   }catch(e){
@@ -1905,38 +2128,16 @@ async function renderAnalisis(){
   renderPantallaAnalisis();
 }
 async function refrescarAnalisis(){
+  cacheMesSemana = {};
   consumoGlobal = null;
   consumoDiarioGlobal = null;
   kgGlobal = null;
   await renderAnalisis();
 }
 function renderPantallaAnalisis(){
-  app.innerHTML = dashTabsHtml() + construirResumen() + construirSeccionEquipos() + construirSeccionDiario();
+  app.innerHTML = dashTabsHtml() + construirResumen() + construirSeccionDiario();
   activarDashTabs();
   activarResumen();
-
-  if (document.getElementById("selLinea")){
-    const semanas = obtenerSemanasDisponibles();
-    const meses = obtenerMesesDisponibles();
-    document.getElementById("selLinea").onchange = (e) => {
-      filtroLinea = e.target.value;
-      dibujarGrafico();
-      dibujarPareto();
-    };
-    document.getElementById("selTipo").onchange = (e) => {
-      filtroTipo = e.target.value;
-      filtroValor = filtroTipo === "semana" ? (semanas[0] || null) : (meses[0] || null);
-      renderPantallaAnalisis();
-    };
-    document.getElementById("selValor").onchange = (e) => {
-      filtroValor = filtroTipo === "semana" ? Number(e.target.value) : e.target.value;
-      dibujarGrafico();
-      dibujarPareto();
-    };
-    dibujarGrafico();
-    dibujarPareto();
-  }
-
   if (document.getElementById("selMedicionDiario")){
     document.getElementById("selMedicionDiario").onchange = (e) => {
       filtroDiarioMedicion = e.target.value;
@@ -1948,132 +2149,6 @@ function renderPantallaAnalisis(){
     };
     dibujarGraficoDiario();
   }
-}
-/* --- Sección Equipos (Semanal): filtros + barras + Pareto --- */
-function construirSeccionEquipos(){
-  if (!consumoGlobal.length || consumoGlobal.every(l => !l.historial.length)) {
-    return `
-      <p class="subtitulo-seccion">Equipos (Semanal)</p>
-      <div class="vacio" style="margin-bottom:26px;">Todavía no hay lecturas registradas.</div>
-    `;
-  }
-  const semanas = obtenerSemanasDisponibles();
-  const meses = obtenerMesesDisponibles();
-  if (filtroValor === null){
-    filtroValor = filtroTipo === "semana" ? (semanas[0] || null) : (meses[0] || null);
-  }
-  return `
-    <p class="subtitulo-seccion">Equipos (Semanal)</p>
-    <div class="filtros-box">
-      <div class="filtros-fila">
-        <div>
-          <label>Línea / medidor</label>
-          <select id="selLinea" class="campo">
-            <option value="">Todas las líneas</option>
-            ${lineasGlobal.map(l => `<option value="${l.medidorNum}" ${String(filtroLinea)===String(l.medidorNum)?"selected":""}>MEDIDOR ${l.medidorNum} — ${l.nombre}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-      <div class="filtros-fila">
-        <div>
-          <label>Ver por</label>
-          <select id="selTipo" class="campo">
-            <option value="semana" ${filtroTipo==="semana"?"selected":""}>Semana</option>
-            <option value="mes" ${filtroTipo==="mes"?"selected":""}>Mes</option>
-          </select>
-        </div>
-        <div id="contValor">
-          <label>${filtroTipo==="semana" ? "Semana" : "Mes"}</label>
-          <select id="selValor" class="campo">
-            ${filtroTipo==="semana"
-              ? semanas.map(s => `<option value="${s}" ${filtroValor==s?"selected":""}>Semana ${s}</option>`).join("")
-              : meses.map(m => `<option value="${m}" ${filtroValor===m?"selected":""}>${formatearMesDMA(m)}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-    </div>
-    <div class="grafico-box">
-      <p class="grafico-titulo">
-        <span id="graficoTitulo"></span>
-        <span style="float:right;">
-          <button id="btnOrden" class="link-actualizar" style="margin-right:12px;" onclick="toggleOrden()"></button>
-          <button class="link-actualizar" onclick="refrescarAnalisis()">↻ actualizar</button>
-        </span>
-      </p>
-      <div id="grafico"></div>
-    </div>
-    <div class="grafico-box" id="paretoBox">
-      <p class="grafico-titulo" id="paretoTitulo"></p>
-      <div id="graficoPareto"></div>
-    </div>
-  `;
-}
-async function toggleOrden(){
-  ordenGrafico = ordenGrafico === "desc" ? "asc" : "desc";
-  dibujarGrafico();
-}
-function obtenerSemanasDisponibles(){
-  const set = new Set();
-  consumoGlobal.forEach(l => l.historial.forEach(p => set.add(p.semana)));
-  return Array.from(set).sort((a,b) => b - a);
-}
-function obtenerMesesDisponibles(){
-  const set = new Set();
-  consumoGlobal.forEach(l => l.historial.forEach(p => {
-    if (p.consumo !== null && p.fecha) set.add(String(p.fecha).slice(0,7));
-  }));
-  return Array.from(set).sort().reverse();
-}
-function calcularDatosGrafico(){
-  const items = [];
-  if (filtroLinea === ""){
-    consumoGlobal.forEach(l => {
-      let valor = 0;
-      l.historial.forEach(p => {
-        if (p.consumo === null) return;
-        if (filtroTipo === "semana"){
-          if (p.semana === filtroValor) valor += p.consumo;
-        }else{
-          if (String(p.fecha).slice(0,7) === filtroValor) valor += p.consumo;
-        }
-      });
-      items.push({ label: `M${l.medidorNum} ${l.nombre}`, valor: Number(valor.toFixed(2)) });
-    });
-    items.sort((a, b) => ordenGrafico === "desc" ? b.valor - a.valor : a.valor - b.valor);
-  }else{
-    const linea = consumoGlobal.find(l => String(l.medidorNum) === String(filtroLinea));
-    if (!linea) return [];
-    if (filtroTipo === "semana"){
-      linea.historial.filter(p => p.consumo !== null).forEach(p => {
-        items.push({ label: `Sem ${p.semana}`, valor: p.consumo });
-      });
-    }else{
-      const porMes = {};
-      linea.historial.filter(p => p.consumo !== null).forEach(p => {
-        const mes = String(p.fecha).slice(0,7);
-        porMes[mes] = (porMes[mes] || 0) + p.consumo;
-      });
-      Object.keys(porMes).sort().forEach(mes => {
-        items.push({ label: formatearMesDMA(mes), valor: Number(porMes[mes].toFixed(2)) });
-      });
-    }
-  }
-  return items;
-}
-function dibujarGrafico(){
-  const items = calcularDatosGrafico();
-  const linea = filtroLinea === "" ? null : lineasGlobal.find(l => String(l.medidorNum) === String(filtroLinea));
-  const tituloSpan = document.getElementById("graficoTitulo");
-  const btnOrden = document.getElementById("btnOrden");
-  if (filtroLinea === ""){
-    tituloSpan.textContent = `Consumo por línea — ${filtroTipo === "semana" ? "Semana " + filtroValor : formatearMesDMA(filtroValor)} (eje Y: m³)`;
-    btnOrden.style.display = "inline";
-    btnOrden.textContent = ordenGrafico === "desc" ? "↓ mayor a menor" : "↑ menor a mayor";
-  }else{
-    tituloSpan.textContent = `Consumo de MEDIDOR ${linea ? linea.medidorNum : ""} — ${linea ? linea.nombre : ""} (eje Y: m³)`;
-    btnOrden.style.display = "none";
-  }
-  renderBarChart(document.getElementById("grafico"), items);
 }
 function renderBarChart(container, items, opc){
   opc = opc || {};
@@ -2122,73 +2197,67 @@ function renderBarChart(container, items, opc){
     </div>
   `;
 }
-/* --- Pareto (solo cuando se comparan "Todas las líneas") --- */
-function dibujarPareto(){
-  const box = document.getElementById("paretoBox");
-  const titulo = document.getElementById("paretoTitulo");
-  const cont = document.getElementById("graficoPareto");
-  if (!box) return;
-  if (filtroLinea !== ""){
-    titulo.textContent = "Pareto de consumo";
-    cont.innerHTML = `<div class="vacio">Selecciona "Todas las líneas" para ver el Pareto.</div>`;
-    return;
-  }
-  const items = calcularDatosGrafico().slice().sort((a, b) => b.valor - a.valor);
-  titulo.textContent = `Pareto 80/20 — ${filtroTipo === "semana" ? "Semana " + filtroValor : formatearMesDMA(filtroValor)}`;
-  renderParetoChart(cont, items);
-}
 function renderParetoChart(container, items){
   if (!items.length){
-    container.innerHTML = `<div class="vacio">No hay datos para este filtro.</div>`;
+    container.innerHTML = `<div class="vacio">No hay datos para este periodo.</div>`;
     return;
   }
   const total = items.reduce((s, i) => s + i.valor, 0) || 1;
   let acumulado = 0;
-  const pct = items.map(i => { acumulado += i.valor; return Number((acumulado / total * 100).toFixed(1)); });
-
+  const pct = items.map(i => { acumulado += i.valor; return acumulado / total * 100; });
+  const n = items.length;
+  // Espacio para que los nombres (inclinados 45°) se lean completos
+  const anchoMax = Math.max(...items.map(i => anchoTexto(i.label, 11, 500)));
+  const diag = anchoMax * Math.SQRT1_2;
+  const mt = 30, mr = 40, H0 = 260;
+  const ml = Math.max(46, Math.ceil(diag) - 10);
+  const mb = Math.ceil(diag) + 24;
+  const W = Math.max(container.clientWidth || 320, n * 50 + ml + mr);
+  const pw = W - ml - mr, ph = H0 - mt;
+  const H = H0 + mb;
+  const paso = pw / n;
+  const anchoBarra = Math.min(50, paso * 0.66);
   const max = Math.max(...items.map(i => i.valor), 1);
-  const anchoBarra = 46;
-  const espacio = 22;
-  const alturaMax = 200;
-  const anchoSvg = items.length * (anchoBarra + espacio) + espacio;
-  const altoSvg = alturaMax + 110;
-
-  let barrasSvg = "";
-  const puntosLinea = [];
-  items.forEach((item, idx) => {
-    const x = espacio + idx * (anchoBarra + espacio);
-    const alturaBarra = Math.max(2, (item.valor / max) * alturaMax);
-    const y = alturaMax - alturaBarra + 20;
-    const xCentro = x + anchoBarra / 2;
-    const yEtiqueta = alturaMax + 26;
-    barrasSvg += `
-      <rect x="${x}" y="${y}" width="${anchoBarra}" height="${alturaBarra}" rx="4" fill="#0b5cab"></rect>
-      <text x="${xCentro}" y="${y - 6}" text-anchor="middle" font-size="10" fill="#083d73" font-weight="700">${item.valor}</text>
-      <text x="${xCentro}" y="${yEtiqueta}" text-anchor="end" font-size="10" fill="#5c6975" transform="rotate(-45 ${xCentro} ${yEtiqueta})">${item.label}</text>
-    `;
-    const yPct = 20 + alturaMax - (pct[idx] / 100) * alturaMax;
-    puntosLinea.push([xCentro, yPct]);
+  const e = escalaY(max * 1.08);
+  const Xc = i => ml + paso * (i + 0.5);
+  const YB = v => mt + ph - (v / e.max) * ph;
+  const YP = p => mt + ph - (p / 100) * ph;
+  const corte = pct.findIndex(p => p >= 80);   // la barra que cruza el 80% es parte de los "pocos vitales"
+  let g = "";
+  for (let t = 0; t <= e.max + 1e-9; t += e.paso){
+    g += `<line x1="${ml}" y1="${YB(t).toFixed(1)}" x2="${W - mr}" y2="${YB(t).toFixed(1)}" stroke="#eef1f4"/>`;
+    g += `<text x="${ml - 6}" y="${(YB(t) + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#8a97a3">${fmtN(t, 0)}</text>`;
+  }
+  [0, 20, 40, 60, 80, 100].forEach(p => {
+    g += `<text x="${W - mr + 6}" y="${(YP(p) + 3.5).toFixed(1)}" font-size="10" fill="#c46a10">${p}%</text>`;
   });
-  const yLinea80 = 20 + alturaMax - 0.8 * alturaMax;
-  const lineaSvg = `
-    <polyline points="${puntosLinea.map(p => p.join(",")).join(" ")}" fill="none" stroke="#e08a1e" stroke-width="2"></polyline>
-    ${puntosLinea.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="#e08a1e"></circle>`).join("")}
-    <line x1="${espacio-6}" y1="${yLinea80}" x2="${anchoSvg-4}" y2="${yLinea80}" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="5,4"></line>
-    <text x="${anchoSvg-6}" y="${yLinea80-4}" text-anchor="end" font-size="9" fill="#c0392b">80%</text>
-  `;
+  g += `<line x1="${ml}" y1="${YP(80).toFixed(1)}" x2="${W - mr}" y2="${YP(80).toFixed(1)}" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="5,4"/>`;
+  let barras = "", etiquetas = "", linea = "", puntos = "";
+  const fuente = paso < 40 ? 9 : 10.5;
+  items.forEach((it, i) => {
+    const x = Xc(i) - anchoBarra / 2, y = YB(it.valor), h = Math.max(1.5, mt + ph - y);
+    const vital = i <= corte;
+    barras += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${anchoBarra.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${vital ? "#0b5cab" : "#9fc2e8"}"><title>${esc(it.label)}: ${fmtN(it.valor, 2)} m³ · ${fmtN(pct[i], 1)}% acumulado</title></rect>`;
+    barras += `<text x="${Xc(i).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-size="${fuente}" font-weight="700" fill="#083d73" class="halo">${fmtN(it.valor, 1)}</text>`;
+    const ye = mt + ph + 14;
+    etiquetas += `<text x="${Xc(i).toFixed(1)}" y="${ye}" text-anchor="end" font-size="11" font-weight="500" fill="#3d4a56" transform="rotate(-45 ${Xc(i).toFixed(1)} ${ye})">${esc(it.label)}</text>`;
+    linea += (i ? "L" : "M") + Xc(i).toFixed(1) + " " + YP(pct[i]).toFixed(1) + " ";
+    puntos += `<circle cx="${Xc(i).toFixed(1)}" cy="${YP(pct[i]).toFixed(1)}" r="3.2" fill="#e08a1e" stroke="#fff" stroke-width="1.2"/>`;
+    puntos += `<text x="${Xc(i).toFixed(1)}" y="${(YP(pct[i]) - 8).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#b35c00" class="halo">${fmtN(pct[i], 0)}%</text>`;
+  });
   container.innerHTML = `
     <div style="overflow-x:auto;">
-      <svg width="${anchoSvg}" height="${altoSvg}" viewBox="0 0 ${anchoSvg} ${altoSvg}">
-        <line x1="${espacio-6}" y1="${alturaMax+20}" x2="${anchoSvg-4}" y2="${alturaMax+20}" stroke="#d7dee5" />
-        ${barrasSvg}
-        ${lineaSvg}
+      <svg class="svg-halo" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Pareto de consumo por medidor">
+        ${g}<line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="#c9d2db"/>
+        ${barras}<path d="${linea}" fill="none" stroke="#e08a1e" stroke-width="2"/>${puntos}${etiquetas}
+        <text x="${W - mr - 2}" y="${(YP(80) - 4).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#c0392b">80%</text>
       </svg>
     </div>
-    <div style="margin-top:8px;font-size:11.5px;color:#5c6975;">
-      <span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;"><span style="width:10px;height:10px;background:#0b5cab;display:inline-block;border-radius:2px;"></span>Consumo (m³)</span>
-      <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;background:#e08a1e;display:inline-block;border-radius:2px;"></span>% acumulado</span>
-    </div>
-  `;
+    <div class="lc-leyenda">
+      <span><i class="k" style="background:#0b5cab;height:10px;width:10px;"></i>Consumo (m³) — medidores que suman el 80%</span>
+      <span><i class="k" style="background:#9fc2e8;height:10px;width:10px;"></i>Resto</span>
+      <span><i class="k" style="background:#e08a1e"></i>% acumulado</span>
+    </div>`;
 }
 /* --- Sección Planta (Diario): filtros + barras por día --- */
 function construirSeccionDiario(){
@@ -2278,7 +2347,7 @@ function renderBarChartDiario(container, fechas, series){
   const alturaMax = 200;
   const anchoSvg = fechas.length * (grupoAncho + espacio) + espacio;
   const altoSvg = alturaMax + 100;
-  const max = Math.max(1, ...fechas.map(f => Math.max(...series.map(s => s.porFecha[f] || 0))));
+  const max = Math.max(1, ...fechas.map(f => Math.max(...series.map(s => s.porFecha[f] || 0)))) * 1.18;
   const anchoBarraIndiv = series.length === 1 ? grupoAncho : (grupoAncho - 6) / series.length;
 
   let barrasSvg = "";
@@ -2289,7 +2358,13 @@ function renderBarChartDiario(container, fechas, series){
       const x = xGrupo + si * (anchoBarraIndiv + (series.length > 1 ? 3 : 0));
       const alturaBarra = Math.max(1, (valor / max) * alturaMax);
       const y = alturaMax - alturaBarra + 20;
-      barrasSvg += `<rect x="${x}" y="${y}" width="${anchoBarraIndiv}" height="${alturaBarra}" rx="3" fill="${colores[si % colores.length]}"></rect>`;
+      barrasSvg += `<rect x="${x}" y="${y}" width="${anchoBarraIndiv}" height="${alturaBarra}" rx="3" fill="${colores[si % colores.length]}"><title>${esc(s.nombre)} · ${formatearFechaDMA(f)}: ${fmtN(valor, 2)} m³</title></rect>`;
+      if (s.porFecha[f] !== undefined){
+        const xm = x + anchoBarraIndiv / 2;
+        barrasSvg += anchoBarraIndiv >= 30
+          ? `<text x="${xm}" y="${y - 5}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#083d73">${fmtN(valor, 1)}</text>`
+          : `<text x="${xm}" y="${y - 4}" text-anchor="start" dominant-baseline="central" font-size="9" font-weight="700" fill="#083d73" transform="rotate(-90 ${xm} ${y - 4})">${fmtN(valor, 1)}</text>`;
+      }
     });
     const xCentro = xGrupo + grupoAncho / 2;
     const yEtiqueta = alturaMax + 26;
@@ -2317,16 +2392,13 @@ function renderBarChartDiario(container, fechas, series){
 // Paleta categórica validada (orden fijo). El color sigue al equipo: al
 // quitar uno de la selección, los demás conservan su color.
 const PALETA_SERIES = ["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#6250d6","#e34948"];
-const MAX_LINEAS = 8;
 const UMBRAL_PCT = 20;   // % de subida para marcar "Revisar"
 const UMBRAL_M3 = 5;     // y al menos esta cantidad de m³
 let resSemana = null;    // semana del resumen
 let resBase = null;      // "equipos" o medidorNum (texto) de una medición diaria
 let cmpRango = 12;       // últimas N semanas (0 = todas)
-let cmpSeleccion = null; // [medidorNum] equipos en el gráfico comparativo
-let cmpSlots = {};       // medidorNum -> posición en la paleta
 let tablaTend = false;
-let tablaCmp = false;
+let tablaPer = false;
 
 function esc(s){
   return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -2395,16 +2467,8 @@ function prepararResumen(){
     const plTiene = pl && (consumoDiarioGlobal || []).some(c => c.medidorNum === pl.medidorNum && c.historial.some(p => p.consumo !== null));
     resBase = plTiene ? String(pl.medidorNum) : "equipos";
   }
-  if (cmpSeleccion === null){
-    const ranking = consumoGlobal
-      .map(l => ({ id: l.medidorNum, c: consumoDe(l, resSemana) }))
-      .filter(x => x.c !== null)
-      .sort((a, b) => b.c - a.c)
-      .slice(0, 5);
-    cmpSeleccion = ranking.map(x => x.id);
-    cmpSlots = {};
-    cmpSeleccion.forEach((id, i) => { cmpSlots[id] = i; });
-  }
+  const claves = opcionesMedidorAgua().map(o => o.v);
+  if (aguaMedidor === null || !claves.includes(aguaMedidor)) aguaMedidor = resBase === "equipos" ? "equipos" : "d:" + resBase;
   return true;
 }
 function construirResumen(){
@@ -2416,6 +2480,7 @@ function construirResumen(){
   const sems = semanasConDatos();
   const optsBase = [`<option value="equipos" ${resBase==="equipos"?"selected":""}>Suma de equipos (Semanal)</option>`]
     .concat(lineasDiarioGlobal.map(l => `<option value="${l.medidorNum}" ${resBase===String(l.medidorNum)?"selected":""}>${esc(l.nombre)} (Diario)</option>`)).join("");
+  const optsMed = opcionesMedidorAgua().map(o => `<option value="${o.v}" ${o.v===aguaMedidor?"selected":""}>${esc(o.t)}</option>`).join("");
   return `
     <div id="resumenCont">
       <p class="subtitulo-seccion">Resumen y alertas</p>
@@ -2443,6 +2508,36 @@ function construirResumen(){
       </div>
       <div id="resKpis"></div>
       <div class="grafico-box">
+        <p class="grafico-titulo"><span id="tituloPer"></span>
+          <button id="btnTablaPer" class="link-actualizar" style="float:right;"></button>
+        </p>
+        <div class="filtros-fila filtros-en-grafico">
+          <div>
+            <label>Ver por</label>
+            <select id="selAguaPeriodo" class="campo">
+              <option value="semana" ${aguaPeriodo==="semana"?"selected":""}>Semana</option>
+              <option value="mes" ${aguaPeriodo==="mes"?"selected":""}>Mes</option>
+            </select>
+          </div>
+          <div>
+            <label>Medidor</label>
+            <select id="selAguaMedidor" class="campo">${optsMed}</select>
+          </div>
+          <div>
+            <label>m³ por tonelada de</label>
+            <select id="selAguaTon" class="campo">
+              ${[["embutidos","Embutidos"],["empacado","Empacado"],["ambos","Embutidos + Empacado"]].map(o => `<option value="${o[0]}" ${aguaTon===o[0]?"selected":""}>${o[1]}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div id="graficoPer"></div>
+        <p class="nota-chica" id="notaPer"></p>
+      </div>
+      <div class="grafico-box">
+        <p class="grafico-titulo" id="tituloPareto"></p>
+        <div id="graficoPareto"></div>
+      </div>
+      <div class="grafico-box">
         <p class="grafico-titulo" id="tituloVar"></p>
         <div id="resVariacion" class="tabla-scroll"></div>
         <p class="nota-chica">Se marca “Revisar” cuando un equipo sube ${UMBRAL_PCT}% o más y al menos ${UMBRAL_M3} m³ frente a la semana anterior.</p>
@@ -2454,31 +2549,30 @@ function construirResumen(){
         <div id="graficoTend"></div>
         <p class="nota-chica" id="notaTend"></p>
       </div>
-      <div class="grafico-box">
-        <p class="grafico-titulo">Consumo semanal por equipo (m³)
-          <button id="btnTablaCmp" class="link-actualizar" style="float:right;"></button>
-        </p>
-        <div id="chipsCmp" class="chips"></div>
-        <div id="avisoCmp" class="nota-chica" style="margin:-4px 0 8px;"></div>
-        <div id="graficoCmp"></div>
-      </div>
     </div>`;
 }
 function activarResumen(){
   if (!document.getElementById("resumenCont")) return;
-  document.getElementById("selResSemana").onchange = (e) => { resSemana = Number(e.target.value); refrescarResumen(); };
+  document.getElementById("selResSemana").onchange = (e) => { resSemana = Number(e.target.value); if (aguaPeriodo === "semana") aguaSel = resSemana; refrescarResumen(); };
   document.getElementById("selResRango").onchange = (e) => { cmpRango = Number(e.target.value); refrescarResumen(); };
-  document.getElementById("selResBase").onchange = (e) => { resBase = e.target.value; refrescarResumen(); };
+  document.getElementById("selResBase").onchange = (e) => {
+    resBase = e.target.value;
+    aguaMedidor = resBase === "equipos" ? "equipos" : "d:" + resBase;
+    document.getElementById("selAguaMedidor").value = aguaMedidor;
+    refrescarResumen();
+  };
+  document.getElementById("selAguaPeriodo").onchange = (e) => { aguaPeriodo = e.target.value; aguaSel = null; dibujarConsumoPeriodo(); };
+  document.getElementById("selAguaMedidor").onchange = (e) => { aguaMedidor = e.target.value; dibujarConsumoPeriodo(); };
+  document.getElementById("selAguaTon").onchange = (e) => { aguaTon = e.target.value; dibujarConsumoPeriodo(); };
   document.getElementById("btnTablaTend").onclick = () => { tablaTend = !tablaTend; dibujarTendencia(); };
-  document.getElementById("btnTablaCmp").onclick = () => { tablaCmp = !tablaCmp; dibujarComparativo(); };
+  document.getElementById("btnTablaPer").onclick = () => { tablaPer = !tablaPer; dibujarConsumoPeriodo(); };
   refrescarResumen();
 }
 function refrescarResumen(){
   pintarKpis();
+  dibujarConsumoPeriodo();
   pintarVariacion();
   dibujarTendencia();
-  pintarChips();
-  dibujarComparativo();
 }
 function semanasRango(){
   const todas = semanasConDatos().slice().sort((a, b) => a - b);
@@ -2545,15 +2639,17 @@ function pintarKpis(){
 /* --- Tabla de variación por equipo --- */
 function pintarVariacion(){
   const s = resSemana, sp = s - 1;
-  document.getElementById("tituloVar").textContent = `Variación por equipo — semana ${s} vs ${sp} (m³)`;
+  const sems = [s - 3, s - 2, s - 1, s].filter(x => x >= 1);
+  document.getElementById("tituloVar").textContent = `Variación por equipo — últimas 4 semanas (m³)`;
   const filas = [];
   consumoGlobal.forEach(l => {
+    const vals = sems.map(w => consumoDe(l, w));
+    if (vals.every(v => v === null)) return;
     const a = consumoDe(l, s), b = consumoDe(l, sp);
-    if (a === null && b === null) return;
     const delta = (a !== null && b !== null) ? a - b : null;
     const pct = (delta !== null && b > 0) ? delta / b * 100 : null;
     const revisar = delta !== null && pct !== null && delta >= UMBRAL_M3 && pct >= UMBRAL_PCT;
-    filas.push({ nombre: `M${l.medidorNum} ${l.nombre}`, a, b, delta, pct, revisar });
+    filas.push({ nombre: `M${l.medidorNum} ${l.nombre}`, vals, delta, pct, revisar });
   });
   filas.sort((x, y) => (y.delta === null ? -Infinity : y.delta) - (x.delta === null ? -Infinity : x.delta));
   const cont = document.getElementById("resVariacion");
@@ -2561,22 +2657,40 @@ function pintarVariacion(){
     cont.innerHTML = `<div class="vacio" style="margin:10px 0;">No hay consumos para estas semanas.</div>`;
     return;
   }
-  const filasHtml = filas.map(f => {
-    let varCelda = "—";
-    if (f.pct !== null){
-      const sube = f.delta > 0;
-      const cls = f.delta === 0 ? "neutro" : (sube ? "malo" : "bueno");
-      const ic = f.delta === 0 ? "●" : (sube ? "▲" : "▼");
-      varCelda = `<span class="ic ${cls}">${ic}</span>${f.pct > 0 ? "+" : ""}${fmtN(f.pct, 0)}%<span class="sub">${f.delta > 0 ? "+" : ""}${fmtN(f.delta, 1)} m³</span>`
-        + (f.revisar ? `<span class="tag-rev">⚠ Revisar</span>` : "");
-    }
-    return `<tr><td>${esc(f.nombre)}</td><td>${fmtN(f.b, 1)}</td><td>${fmtN(f.a, 1)}</td><td>${varCelda}</td></tr>`;
-  }).join("");
+  const total = sems.map(w => m3Equipos(w));
+  const celdaVar = (delta, pct, revisar) => {
+    if (pct === null) return "—";
+    const sube = delta > 0;
+    const cls = delta === 0 ? "neutro" : (sube ? "malo" : "bueno");
+    const ic = delta === 0 ? "●" : (sube ? "▲" : "▼");
+    return `<span class="ic ${cls}">${ic}</span>${pct > 0 ? "+" : ""}${fmtN(pct, 0)}%<span class="sub">${delta > 0 ? "+" : ""}${fmtN(delta, 1)} m³</span>`
+      + (revisar ? `<span class="tag-rev">⚠ Revisar</span>` : "");
+  };
+  const filaHtml = (nombre, vals, delta, pct, revisar, cls) => `<tr class="${cls || ""}">
+      <td>${esc(nombre)}</td>
+      ${vals.map(v => `<td>${fmtN(v, 1)}</td>`).join("")}
+      <td class="spark-celda">${sparkline(vals)}</td>
+      <td>${celdaVar(delta, pct, revisar)}</td></tr>`;
+  const tA = total[total.length - 1], tB = total.length > 1 ? total[total.length - 2] : null;
+  const tDelta = (tA !== null && tB !== null) ? tA - tB : null;
+  const tPct = (tDelta !== null && tB > 0) ? tDelta / tB * 100 : null;
   cont.innerHTML = `
     <table class="tabla-var">
-      <thead><tr><th>Equipo</th><th>Sem ${sp}</th><th>Sem ${s}</th><th>Variación</th></tr></thead>
-      <tbody>${filasHtml}</tbody>
+      <thead><tr><th>Equipo</th>${sems.map(w => `<th>Sem ${w}</th>`).join("")}<th>Tendencia</th><th>Var. sem ${s} vs ${sp}</th></tr></thead>
+      <tbody>${filas.map(f => filaHtml(f.nombre, f.vals, f.delta, f.pct, f.revisar)).join("")}
+        ${filaHtml("Suma de equipos", total, tDelta, tPct, false, "fila-total")}</tbody>
     </table>`;
+}
+// Mini gráfico de tendencia para la tabla (4 puntos)
+function sparkline(vals){
+  const v = vals.filter(x => x !== null);
+  if (v.length < 2) return "";
+  const w = 64, h = 22, min = Math.min(...v), max = Math.max(...v), rango = (max - min) || 1;
+  const X = i => 3 + i * (w - 6) / (vals.length - 1), Y = x => h - 3 - (x - min) / rango * (h - 6);
+  let d = "", pluma = false, ult = null;
+  vals.forEach((x, i) => { if (x === null){ pluma = false; return; } d += (pluma ? "L" : "M") + X(i).toFixed(1) + " " + Y(x).toFixed(1) + " "; pluma = true; ult = i; });
+  const sube = v[v.length - 1] > v[v.length - 2];
+  return `<svg width="${w}" height="${h}" aria-hidden="true"><path d="${d}" fill="none" stroke="#8a97a3" stroke-width="1.5"/><circle cx="${X(ult).toFixed(1)}" cy="${Y(vals[ult]).toFixed(1)}" r="2.6" fill="${sube ? "#d03b3b" : "#0ca30c"}"/></svg>`;
 }
 /* --- Gráfico: kg por m³ por semana --- */
 function dibujarTendencia(){
@@ -2592,58 +2706,8 @@ function dibujarTendencia(){
       { nombre: "Embutidos", color: PALETA_SERIES[0], valores: serie("embutidos") },
       { nombre: "Empacado",  color: PALETA_SERIES[1], valores: serie("empacado") }
     ],
-    unidad: "kg/m³", dec: 1, leyenda: true, valoresFinales: true, tabla: tablaTend
+    unidad: "kg/m³", dec: 1, leyenda: true, valoresFinales: false, tabla: tablaTend, etiquetasValor: true
   });
-}
-/* --- Gráfico: comparativo de equipos --- */
-function pintarChips(){
-  const cont = document.getElementById("chipsCmp");
-  cont.innerHTML = consumoGlobal.map(l => {
-    const sel = cmpSeleccion.includes(l.medidorNum);
-    const color = sel ? PALETA_SERIES[cmpSlots[l.medidorNum]] : "transparent";
-    return `<button class="chip ${sel ? "activo" : ""}" style="--c:${color}" data-id="${l.medidorNum}"><span class="key"></span>${esc(`M${l.medidorNum} ${l.nombre}`)}</button>`;
-  }).join("");
-  cont.querySelectorAll(".chip").forEach(btn => {
-    btn.onclick = () => alternarEquipo(Number(btn.dataset.id));
-  });
-}
-function alternarEquipo(id){
-  const aviso = document.getElementById("avisoCmp");
-  aviso.textContent = "";
-  if (cmpSeleccion.includes(id)){
-    cmpSeleccion = cmpSeleccion.filter(x => x !== id);
-    delete cmpSlots[id];
-  }else{
-    if (cmpSeleccion.length >= MAX_LINEAS){
-      aviso.textContent = `Máximo ${MAX_LINEAS} equipos a la vez. Quita uno para agregar otro.`;
-      return;
-    }
-    const usados = Object.values(cmpSlots);
-    let slot = 0;
-    while (usados.includes(slot)) slot++;
-    cmpSlots[id] = slot;
-    cmpSeleccion.push(id);
-  }
-  pintarChips();
-  dibujarComparativo();
-}
-function dibujarComparativo(){
-  document.getElementById("btnTablaCmp").textContent = tablaCmp ? "Ver gráfico" : "Ver tabla";
-  const cont = document.getElementById("graficoCmp");
-  if (!cmpSeleccion.length){
-    cont.innerHTML = `<div class="vacio" style="margin:10px 0;">Elige uno o más equipos arriba.</div>`;
-    return;
-  }
-  const semanas = semanasRango();
-  const series = cmpSeleccion.map(id => {
-    const l = consumoGlobal.find(x => x.medidorNum === id);
-    return {
-      nombre: `M${id} ${l ? l.nombre : ""}`.trim(),
-      color: PALETA_SERIES[cmpSlots[id]],
-      valores: semanas.map(s => l ? consumoDe(l, s) : null)
-    };
-  });
-  renderLineChart(cont, { semanas, series, unidad: "m³", dec: 1, leyenda: false, valoresFinales: false, tabla: tablaCmp });
 }
 /* =========================================================
    DASHBOARD · CONSUMO ENERGÉTICO
@@ -2862,7 +2926,7 @@ function dibujarFpDiario(){
     unidad: "%", dec: 1, leyenda: true, valoresFinales: false, tabla: false,
     yMin: escalaMinFp(min.concat(prom)), yMax: 100,
     referencia: { valor: FP_REFERENCIA, texto: `Ref. ${FP_REFERENCIA}%` },
-    anchoPunto: 34, maxPuntos: 31
+    anchoPunto: 34, maxPuntos: 31, etiquetasValor: true
   });
 }
 async function dibujarFpDia(){
@@ -2903,8 +2967,192 @@ async function dibujarFpDia(){
     unidad: "%", dec: 1, leyenda: false, valoresFinales: false, tabla: false,
     yMin: escalaMinFp(valores), yMax: 100,
     referencia: { valor: FP_REFERENCIA, texto: `Ref. ${FP_REFERENCIA}%` },
-    anchoPunto: 9, maxPuntos: 0
+    anchoPunto: 9, maxPuntos: 0, etiquetasValor: "extremos"
   });
+}
+/* --- Consumo de agua por semana/mes (barras m³ + línea m³/t) y Pareto del periodo elegido --- */
+function opcionesMedidorAgua(){
+  return [{ v: "equipos", t: "Suma de equipos (Semanal)" }]
+    .concat(lineasDiarioGlobal.map(l => ({ v: "d:" + l.medidorNum, t: `${l.nombre} (Diario)` })))
+    .concat(lineasGlobal.map(l => ({ v: "e:" + l.medidorNum, t: `M${l.medidorNum} ${l.nombre}` })));
+}
+function nombreMedidorAgua(clave){
+  const o = opcionesMedidorAgua().find(x => x.v === clave);
+  return o ? o.t : "";
+}
+// Mes al que pertenece una semana ISO (el mes de su jueves). El año se toma de las lecturas de esa semana.
+let cacheMesSemana = {};
+function mesDeSemana(sem){
+  if (cacheMesSemana[sem]) return cacheMesSemana[sem];
+  let anio = null;
+  const buscar = lista => (lista || []).some(l => l.historial.some(p => {
+    if (p.semana === sem && p.fecha){ anio = Number(String(p.fecha).slice(0, 4)); return true; }
+    return false;
+  }));
+  if (!buscar(consumoGlobal)) buscar(consumoDiarioGlobal);
+  if (!anio) anio = new Date().getFullYear();
+  const d = new Date(Date.UTC(anio, 0, 4));
+  const dow = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() - dow + 1 + (sem - 1) * 7 + 3);
+  return (cacheMesSemana[sem] = d.toISOString().slice(0, 7));
+}
+function sumaONull(vals){
+  const v = vals.filter(x => x !== null && x !== undefined);
+  return v.length ? v.reduce((a, b) => a + b, 0) : null;
+}
+function semanasDelMes(mes){
+  return semanasConDatos().filter(s => mesDeSemana(s) === mes);
+}
+function m3Clave(clave, per){
+  if (aguaPeriodo === "semana"){
+    if (clave === "equipos") return m3Equipos(per);
+    if (clave.startsWith("d:")) return m3Diario(per, Number(clave.slice(2))).m3;
+    const l = consumoGlobal.find(x => x.medidorNum === Number(clave.slice(2)));
+    return l ? consumoDe(l, per) : null;
+  }
+  if (clave.startsWith("d:")){
+    const l = (consumoDiarioGlobal || []).find(x => x.medidorNum === Number(clave.slice(2)));
+    return l ? sumaONull(l.historial.filter(p => p.consumo !== null && String(p.fecha).slice(0, 7) === per).map(p => p.consumo)) : null;
+  }
+  return sumaONull(semanasDelMes(per).map(s => {
+    if (clave === "equipos") return m3Equipos(s);
+    const l = consumoGlobal.find(x => x.medidorNum === Number(clave.slice(2)));
+    return l ? consumoDe(l, s) : null;
+  }));
+}
+function kgSemanaTon(sem){
+  if (aguaTon === "ambos") return sumaONull([kgSem("embutidos", sem), kgSem("empacado", sem)]);
+  return kgSem(aguaTon, sem);
+}
+function kgPeriodo(per){
+  return aguaPeriodo === "semana" ? kgSemanaTon(per) : sumaONull(semanasDelMes(per).map(kgSemanaTon));
+}
+function periodosAgua(){
+  if (aguaPeriodo === "semana") return semanasRango();
+  const set = new Set(semanasConDatos().map(mesDeSemana));
+  (consumoDiarioGlobal || []).forEach(l => l.historial.forEach(p => { if (p.consumo !== null) set.add(String(p.fecha).slice(0, 7)); }));
+  const meses = Array.from(set).sort();
+  const n = cmpRango > 0 ? Math.max(3, Math.ceil(cmpRango / 4.35)) : meses.length;
+  return meses.slice(-n);
+}
+function etiquetaPeriodo(per, corta){
+  if (aguaPeriodo === "semana") return corta ? `S${per}` : `Semana ${per}`;
+  return formatearMesDMA(per);
+}
+function dibujarConsumoPeriodo(){
+  const cont = document.getElementById("graficoPer");
+  if (!cont) return;
+  const pers = periodosAgua();
+  if (aguaSel === null || !pers.includes(aguaSel)){
+    aguaSel = aguaPeriodo === "semana" ? (pers.includes(resSemana) ? resSemana : pers[pers.length - 1]) : pers[pers.length - 1];
+  }
+  const m3 = pers.map(p => m3Clave(aguaMedidor, p));
+  const ton = pers.map(p => { const kg = kgPeriodo(p); return kg === null ? null : kg / 1000; });
+  const m3t = pers.map((p, i) => (m3[i] !== null && ton[i] !== null && ton[i] > 0) ? m3[i] / ton[i] : null);
+  const nomTon = { embutidos: "Embutidos", empacado: "Empacado", ambos: "Embutidos + Empacado" }[aguaTon];
+  document.getElementById("tituloPer").textContent = `Consumo de agua por ${aguaPeriodo === "semana" ? "semana" : "mes"} — ${nombreMedidorAgua(aguaMedidor)}`;
+  document.getElementById("btnTablaPer").textContent = tablaPer ? "Ver gráfico" : "Ver tabla";
+  document.getElementById("notaPer").textContent =
+    `Barras: m³ de agua. Línea: m³ por tonelada producida (${nomTon}) = m³ ÷ (kg ÷ 1000); más bajo es mejor. Toca una barra para ver el Pareto de ese periodo.` +
+    (aguaPeriodo === "mes" ? " Cada semana se asigna al mes de su jueves." : "");
+  if (tablaPer){
+    cont.innerHTML = `<div class="tabla-scroll"><table class="tabla-var">
+      <thead><tr><th>${aguaPeriodo === "semana" ? "Semana" : "Mes"}</th><th>Agua (m³)</th><th>Producción (t)</th><th>m³/t</th></tr></thead>
+      <tbody>${pers.map((p, i) => `<tr><td>${etiquetaPeriodo(p)}</td><td>${fmtN(m3[i], 1)}</td><td>${fmtN(ton[i], 1)}</td><td>${fmtN(m3t[i], 2)}</td></tr>`).join("")}</tbody>
+    </table></div>`;
+  }else{
+    renderBarLineChart(cont, {
+      etiquetas: pers.map(p => etiquetaPeriodo(p, true)),
+      titulos: pers.map(p => etiquetaPeriodo(p)),
+      barras: m3, linea: m3t, unidadBarra: "m³", unidadLinea: "m³/t", decBarra: 0, decLinea: 2,
+      nombreBarra: "Agua (m³)", nombreLinea: `m³ por tonelada (${nomTon})`,
+      seleccion: pers.indexOf(aguaSel),
+      alElegir: i => { aguaSel = pers[i]; dibujarConsumoPeriodo(); }
+    });
+  }
+  dibujarParetoPeriodo();
+}
+function dibujarParetoPeriodo(){
+  const cont = document.getElementById("graficoPareto");
+  if (!cont) return;
+  document.getElementById("tituloPareto").textContent = `Pareto 80/20 de medidores (equipos) — ${aguaSel === undefined || aguaSel === null ? "" : etiquetaPeriodo(aguaSel)} (m³)`;
+  const items = [];
+  consumoGlobal.forEach(l => {
+    const v = aguaPeriodo === "semana" ? consumoDe(l, aguaSel) : sumaONull(semanasDelMes(aguaSel).map(s => consumoDe(l, s)));
+    if (v !== null) items.push({ label: `M${l.medidorNum} ${l.nombre}`, valor: Number(v.toFixed(2)) });
+  });
+  items.sort((a, b) => b.valor - a.valor);
+  renderParetoChart(cont, items);
+}
+/* --- Medición del ancho de textos (para que las etiquetas no se corten) --- */
+let ctxMedida = null;
+function anchoTexto(txt, px, peso){
+  if (!ctxMedida) ctxMedida = document.createElement("canvas").getContext("2d");
+  ctxMedida.font = `${peso || 400} ${px}px "Plus Jakarta Sans", Arial, sans-serif`;
+  return ctxMedida.measureText(String(txt)).width;
+}
+/* --- Barras + línea en eje secundario, con valores y barra seleccionable --- */
+function renderBarLineChart(cont, cfg){
+  const n = cfg.etiquetas.length;
+  if (!n || cfg.barras.every(v => v === null)){
+    cont.innerHTML = `<div class="vacio" style="margin:10px 0;">No hay datos para mostrar.</div>`;
+    return;
+  }
+  const ml = 46, mr = 50, mt = 30, mb = 30, H = 300;
+  const W = Math.max(cont.clientWidth || 320, n * 52 + ml + mr);
+  const pw = W - ml - mr, ph = H - mt - mb;
+  const paso = pw / n;
+  const anchoBarra = Math.min(54, paso * 0.62);
+  const maxB = Math.max(0, ...cfg.barras.filter(v => v !== null));
+  const maxL = Math.max(0, ...cfg.linea.filter(v => v !== null));
+  const eB = escalaY(maxB * 1.08), eL = escalaY(maxL * 1.25);
+  const Xc = i => ml + paso * (i + 0.5);
+  const YB = v => mt + ph - (v / eB.max) * ph;
+  const YL = v => mt + ph - (v / eL.max) * ph;
+  let g = "";
+  for (let t = 0; t <= eB.max + 1e-9; t += eB.paso){
+    g += `<line x1="${ml}" y1="${YB(t).toFixed(1)}" x2="${W - mr}" y2="${YB(t).toFixed(1)}" stroke="#e4e9ee"/>`;
+    g += `<text x="${ml - 6}" y="${(YB(t) + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#8a97a3">${fmtN(t, 0)}</text>`;
+  }
+  if (maxL > 0) for (let t = 0; t <= eL.max + 1e-9; t += eL.paso){
+    g += `<text x="${W - mr + 6}" y="${(YL(t) + 3.5).toFixed(1)}" font-size="10" fill="#c46a10">${fmtN(t, 2)}</text>`;
+  }
+  g += `<text x="${ml - 6}" y="${mt - 14}" text-anchor="end" font-size="10" fill="#5c6975">${esc(cfg.unidadBarra)}</text>`;
+  if (maxL > 0) g += `<text x="${W - mr + 6}" y="${mt - 14}" font-size="10" fill="#c46a10">${esc(cfg.unidadLinea)}</text>`;
+  const fuente = paso < 40 ? 9 : 10.5;
+  let barras = "", etiquetasX = "", hits = "";
+  cfg.barras.forEach((v, i) => {
+    const x = Xc(i) - anchoBarra / 2;
+    const sel = i === cfg.seleccion;
+    if (v !== null){
+      const y = YB(v), h = Math.max(1.5, mt + ph - y);
+      barras += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${anchoBarra.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${sel ? "#0B2A66" : "#4f8fd6"}"/>`;
+      barras += `<text x="${Xc(i).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-size="${fuente}" font-weight="700" fill="#083d73" class="halo">${fmtN(v, cfg.decBarra)}</text>`;
+    }
+    etiquetasX += `<text x="${Xc(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10.5" font-weight="${sel ? 800 : 500}" fill="${sel ? "#0B2A66" : "#5c6975"}">${esc(cfg.etiquetas[i])}</text>`;
+    hits += `<rect class="col-hit" data-i="${i}" x="${(ml + paso * i).toFixed(1)}" y="${mt - 20}" width="${paso.toFixed(1)}" height="${ph + mb + 20}" fill="transparent" style="cursor:pointer"><title>${esc(cfg.titulos[i])}: ${fmtN(v, 1)} ${esc(cfg.unidadBarra)}${cfg.linea[i] !== null ? ` · ${fmtN(cfg.linea[i], 2)} ${esc(cfg.unidadLinea)}` : ""}</title></rect>`;
+  });
+  let linea = "", puntos = "", pluma = false;
+  cfg.linea.forEach((v, i) => {
+    if (v === null){ pluma = false; return; }
+    linea += (pluma ? "L" : "M") + Xc(i).toFixed(1) + " " + YL(v).toFixed(1) + " ";
+    pluma = true;
+    puntos += `<circle cx="${Xc(i).toFixed(1)}" cy="${YL(v).toFixed(1)}" r="3.6" fill="#e08a1e" stroke="#fff" stroke-width="1.5"/>`;
+    puntos += `<text x="${(Xc(i) + 5).toFixed(1)}" y="${(YL(v) - 7).toFixed(1)}" font-size="${fuente}" font-weight="700" fill="#b35c00" class="halo">${fmtN(v, cfg.decLinea)}</text>`;
+  });
+  cont.innerHTML = `
+    <div style="overflow-x:auto;">
+      <svg class="svg-halo" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(cfg.nombreBarra)} y ${esc(cfg.nombreLinea)}">
+        ${g}<line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="#c9d2db"/>
+        ${barras}<path d="${linea}" fill="none" stroke="#e08a1e" stroke-width="2"/>${puntos}${etiquetasX}${hits}
+      </svg>
+    </div>
+    <div class="lc-leyenda">
+      <span><i class="k" style="background:#4f8fd6;height:10px;width:10px;"></i>${esc(cfg.nombreBarra)}</span>
+      <span><i class="k" style="background:#e08a1e"></i>${esc(cfg.nombreLinea)}</span>
+      <span><i class="k" style="background:#0B2A66;height:10px;width:10px;"></i>Periodo elegido para el Pareto</span>
+    </div>`;
+  cont.querySelectorAll(".col-hit").forEach(r => { r.onclick = () => cfg.alElegir(Number(r.dataset.i)); });
 }
 /* --- Gráfico de líneas genérico (SVG) con cursor y tooltip --- */
 function escalaY(max){
@@ -3011,6 +3259,21 @@ function renderLineChart(cont, cfg){
   });
 
   let etiquetas = "";
+  if (cfg.etiquetasValor){
+    const fuenteV = n > 20 ? 9 : 10;
+    series.forEach((s, si) => {
+      let idxs = s.valores.map((v, i) => v === null ? -1 : i).filter(i => i >= 0);
+      if (cfg.etiquetasValor === "extremos" && idxs.length){
+        const vs = idxs.map(i => s.valores[i]);
+        idxs = [idxs[vs.indexOf(Math.min(...vs))], idxs[vs.indexOf(Math.max(...vs))]];
+      }
+      const abajo = si % 2 === 1;
+      idxs.forEach(i => {
+        const v = s.valores[i];
+        etiquetas += `<text x="${X(i).toFixed(1)}" y="${(Y(v) + (abajo ? 15 : -8)).toFixed(1)}" text-anchor="middle" font-size="${fuenteV}" font-weight="700" fill="${s.color}" class="halo">${fmtN(v, cfg.dec)}</text>`;
+      });
+    });
+  }
   if (cfg.valoresFinales){
     const fin = series.map(s => {
       let i = s.valores.length - 1;
@@ -3031,7 +3294,7 @@ function renderLineChart(cont, cfg){
   cont.innerHTML = `
     <div style="overflow-x:auto;">
       <div class="lc-wrap" style="width:${W}px;">
-        <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(resumenA11y)}">
+        <svg class="svg-halo" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(resumenA11y)}">
           ${g}${lineas}${puntos}${etiquetas}
           <line class="cur" x1="0" y1="${mt}" x2="0" y2="${mt + ph}" stroke="#8a97a3" stroke-width="1" style="display:none"/>
           <g class="hl"></g>
