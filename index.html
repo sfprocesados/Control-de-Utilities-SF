@@ -329,6 +329,17 @@
   .lc-leyenda span{display:inline-flex;align-items:center;gap:6px;}
   .lc-leyenda .k{width:12px;height:3px;border-radius:2px;display:inline-block;}
   .nota-chica{font-size:11.5px;color:var(--gris);margin:8px 2px 0;line-height:1.4;}
+  /* --- Dashboard: pestañas por servicio y energía --- */
+  .dash-tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:4px;margin:0 0 18px;}
+  .dash-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:none;background:transparent;border-radius:9px;padding:10px 8px;font:inherit;font-size:13.5px;font-weight:700;color:var(--gris);cursor:pointer;}
+  .dash-tab svg{width:17px;height:17px;flex:none;}
+  .dash-tab.activo{background:var(--azul);color:#fff;}
+  .dash-tab:focus-visible{outline:2px solid var(--azul);outline-offset:2px;}
+  .energia-estado{margin-top:14px;background:#fff;border:1px solid var(--borde);border-radius:10px;padding:12px 14px;}
+  .energia-estado:empty{display:none;}
+  .energia-estado .et{font-size:12px;color:#5c6975;}
+  .energia-estado .val{font-size:20px;font-weight:700;color:var(--texto);margin:3px 0;}
+  .energia-estado .val span{font-size:13px;font-weight:600;color:#5c6975;}
   /* --- Responsive: celular (por defecto) / tablet / PC --- */
   @media (min-width:700px){
     main{ max-width:760px; padding:22px 24px 48px; }
@@ -664,6 +675,15 @@ let filtroDiarioMes = null;         // "yyyy-mm"
 // --- Kg Producidos (Semanal) ---
 let kgGlobal = null;                // { embutidos:{semana:kg}, empacado:{semana:kg} }
 let kgSemana = null;                // semana que se está registrando
+// --- Dashboard ---
+let dashModulo = "agua";            // "agua" | "energia"
+// --- Energía (Dashboard) ---
+let energiaDiariaGlobal = null;     // filas de la vista energia_diaria
+let filtroEnergiaMes = null;        // "yyyy-mm"
+let filtroEnergiaDia = null;        // "yyyy-mm-dd" para el detalle de 15 min
+let tablaEnergia = false;
+let cacheFpDia = {};                // dia -> [{fecha_hora, factor_potencia}]
+const FP_REFERENCIA = 96;           // % — línea de referencia del factor de potencia (ajústala si tu meta es otra)
 
 /* =========================================================
    ACCESO A SUPABASE
@@ -1327,21 +1347,52 @@ function formatearTamano(bytes){
 }
 async function renderEnergia(){
   app.innerHTML = `
-    <p class="subtitulo">Sube el archivo Excel con los consumos de energía.</p>
+    <p class="subtitulo">Sube el reporte de energía (Excel o CSV). Se leen las columnas “Fecha y hora”, “Energía activa (kWh)” y “Factor de potencia (%)”. Si una fecha y hora ya existe se actualiza; si no, se agrega.</p>
     <div class="linea-box">
       <div style="padding:16px;">
         <label>Archivo (.xlsx, .xls o .csv · máx. ${MAX_MB_ENERGIA} MB)</label>
         <input id="inputArchivoEnergia" class="campo" type="file" accept=".xlsx,.xls,.csv">
         <div id="errorEnergia" class="mensaje-error"></div>
         <div id="okEnergia" class="mensaje-ok"></div>
-        <button class="btn-guardar" id="btnSubirEnergia">Subir archivo</button>
+        <button class="btn-guardar" id="btnSubirEnergia">Cargar archivo</button>
       </div>
     </div>
+    <div id="estadoEnergia" class="energia-estado"></div>
     <p class="subtitulo-seccion" style="margin-top:26px;">Archivos cargados</p>
+    <p class="nota-chica" style="margin:-6px 2px 10px;">Eliminar un archivo de esta lista no borra las lecturas que ya se cargaron.</p>
     <div id="listaEnergia"><div class="cargando"><div class="spinner"></div>Cargando...</div></div>
   `;
   document.getElementById("btnSubirEnergia").onclick = subirArchivoEnergia;
-  await cargarArchivosEnergia();
+  await Promise.all([cargarArchivosEnergia(), pintarEstadoEnergia()]);
+}
+/* --- Resumen de lo que ya está en la base --- */
+async function pintarEstadoEnergia(){
+  let html = "";
+  try{
+    const [cnt, prim, ult] = await Promise.all([
+      sb.from("energia_lecturas").select("fecha_hora", { count: "exact", head: true }),
+      sb.from("energia_lecturas").select("fecha_hora").order("fecha_hora", { ascending: true }).limit(1),
+      sb.from("energia_lecturas").select("fecha_hora").order("fecha_hora", { ascending: false }).limit(1)
+    ]);
+    [cnt, prim, ult].forEach(r => { if (r.error) throw new Error(r.error.message); });
+    if (!cnt.count){
+      html = `<div class="vacio" style="margin:0;">Todavía no hay lecturas de energía cargadas.</div>`;
+    }else{
+      html = `<div class="et">Lecturas en el sistema</div>
+        <div class="val">${fmtN(cnt.count, 0)} <span>lecturas de 15 min</span></div>
+        <div class="et">Del ${esc(fmtFechaHora(prim.data[0].fecha_hora))} al ${esc(fmtFechaHora(ult.data[0].fecha_hora))}</div>`;
+    }
+  }catch(e){
+    html = `<div class="mensaje-error" style="margin:0;">No se pudo leer la tabla energia_lecturas: ${esc(e.message)}. ¿Ya ejecutaste el script SQL de energía en Supabase?</div>`;
+  }
+  if (vistaActual !== "energia") return;
+  const cont = document.getElementById("estadoEnergia");
+  if (cont) cont.innerHTML = html;
+}
+function fmtFechaHora(v){
+  // "2026-11-01T00:15:00" -> "01/11/2026 00:15"
+  const s = String(v);
+  return `${formatearFechaDMA(s.slice(0, 10))} ${s.slice(11, 16)}`;
 }
 async function cargarArchivosEnergia(){
   let filas = [];
@@ -1415,26 +1466,224 @@ async function subirArchivoEnergia(){
   }
   errorDiv.textContent = "";
   btn.disabled = true;
-  btn.textContent = "Subiendo...";
-  const ruta = `${Date.now()}_${nombreSeguro(f.name)}`;
-  let subido = false;
+  const paso = (t) => { if (vistaActual === "energia") btn.textContent = t; };
   try{
-    const up = await sb.storage.from(BUCKET_ENERGIA).upload(ruta, f, { contentType: f.type || "application/octet-stream", upsert: false });
-    if (up.error) throw new Error(up.error.message);
-    subido = true;
-    const ins = await sb.from("energia_archivos").insert({ nombre: f.name, ruta, tamano: f.size });
-    if (ins.error) throw new Error(ins.error.message);
+    // 1) Leer y validar el archivo
+    paso("Leyendo archivo...");
+    const filas = await leerFilasArchivo(f);
+    const res = procesarFilasEnergia(filas);
+    if (!res.lecturas.length) throw new Error("El archivo no tiene lecturas válidas.");
+
+    // 2) Guardar en la base (nuevas se agregan, existentes se actualizan)
+    paso("Guardando lecturas...");
+    const existentes = await fechasEnergiaExistentes(res.desde, res.hasta);
+    const nuevas = res.lecturas.filter(l => !existentes.has(l.fecha_hora.slice(0, 16))).length;
+    await guardarLecturasEnergia(res.lecturas, n => paso(`Guardando ${Math.round(n / res.lecturas.length * 100)}%...`));
+    energiaDiariaGlobal = null;   // el Dashboard vuelve a leer los datos
+
+    // 3) Archivar el archivo original (si falla, las lecturas ya quedaron guardadas)
+    paso("Archivando...");
+    let avisoArchivo = "";
+    const ruta = `${Date.now()}_${nombreSeguro(f.name)}`;
+    try{
+      const up = await sb.storage.from(BUCKET_ENERGIA).upload(ruta, f, { contentType: f.type || "application/octet-stream", upsert: false });
+      if (up.error) throw new Error(up.error.message);
+      const ins = await sb.from("energia_archivos").insert({ nombre: f.name, ruta, tamano: f.size });
+      if (ins.error){
+        try{ await sb.storage.from(BUCKET_ENERGIA).remove([ruta]); }catch(_){}
+        throw new Error(ins.error.message);
+      }
+    }catch(e){
+      avisoArchivo = ` (las lecturas se guardaron, pero el archivo no se pudo archivar: ${e.message})`;
+    }
+
     if (vistaActual !== "energia") return;
     input.value = "";
-    okDiv.textContent = `✓ "${f.name}" subido.`;
-    await cargarArchivosEnergia();
+    const actualizadas = res.lecturas.length - nuevas;
+    okDiv.textContent = `✓ ${fmtN(res.lecturas.length, 0)} lecturas del ${fmtFechaHora(res.desde)} al ${fmtFechaHora(res.hasta)}: ` +
+      `${fmtN(nuevas, 0)} nuevas, ${fmtN(actualizadas, 0)} actualizadas` +
+      (res.sinDatos ? `, ${fmtN(res.sinDatos, 0)} filas vacías omitidas` : "") + "." + avisoArchivo;
+    await Promise.all([cargarArchivosEnergia(), pintarEstadoEnergia()]);
   }catch(e){
-    if (subido){ try{ await sb.storage.from(BUCKET_ENERGIA).remove([ruta]); }catch(_){} }
-    if (vistaActual === "energia") errorDiv.textContent = "No se pudo subir: " + e.message;
+    if (vistaActual === "energia") errorDiv.textContent = "No se pudo cargar: " + e.message;
   }finally{
     if (vistaActual === "energia"){
       btn.disabled = false;
-      btn.textContent = "Subir archivo";
+      btn.textContent = "Cargar archivo";
+    }
+  }
+}
+/* --- Lectura del archivo: CSV propio; Excel con SheetJS (se carga solo si hace falta) --- */
+let promesaSheetJS = null;
+function cargarSheetJS(){
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!promesaSheetJS){
+    promesaSheetJS = new Promise((ok, mal) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+      s.onload = () => ok(window.XLSX);
+      s.onerror = () => { promesaSheetJS = null; mal(new Error("No se pudo cargar el lector de Excel. Revisa la conexión a internet.")); };
+      document.head.appendChild(s);
+    });
+  }
+  return promesaSheetJS;
+}
+async function leerFilasArchivo(f){
+  const buf = await f.arrayBuffer();
+  if (/\.csv$/i.test(f.name)){
+    let texto;
+    try{ texto = new TextDecoder("utf-8", { fatal: true }).decode(buf); }
+    catch(_){ texto = new TextDecoder("windows-1252").decode(buf); }
+    return parsearCSV(texto.replace(/^﻿/, ""));
+  }
+  const XLSX = await cargarSheetJS();
+  const wb = XLSX.read(buf, { type: "array", cellDates: false });
+  // Se usa la primera hoja que tenga las columnas buscadas
+  for (const nombre of wb.SheetNames){
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, raw: true, defval: null });
+    if (buscarColumnasEnergia(filas)) return filas;
+  }
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
+}
+function parsearCSV(texto){
+  const lineas = texto.split(/\r?\n/).filter(l => l.trim() !== "");
+  if (!lineas.length) return [];
+  const cab = lineas[0];
+  const cuenta = c => cab.split(c).length - 1;
+  const sep = [";", "\t", ","].sort((a, b) => cuenta(b) - cuenta(a))[0];
+  return lineas.map(l => {
+    const celdas = [];
+    let actual = "", comillas = false;
+    for (let i = 0; i < l.length; i++){
+      const ch = l[i];
+      if (ch === '"'){
+        if (comillas && l[i + 1] === '"'){ actual += '"'; i++; }
+        else comillas = !comillas;
+      }else if (ch === sep && !comillas){
+        celdas.push(actual); actual = "";
+      }else actual += ch;
+    }
+    celdas.push(actual);
+    return celdas.map(c => c.trim());
+  });
+}
+// Encuentra la fila de cabeceras y las columnas. Tolera tildes mal leídas ("EnergÃ­a").
+function buscarColumnasEnergia(filas){
+  const norm = v => String(v === null || v === undefined ? "" : v).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  for (let r = 0; r < Math.min(filas.length, 30); r++){
+    const cab = (filas[r] || []).map(norm);
+    const iFecha = cab.findIndex(c => /fecha/.test(c));
+    // "energía activa" en kWh, pero NO "energía reactiva"
+    const iKwh = cab.findIndex(c => /energ\S*\s+activa/.test(c) && !/reactiva/.test(c));
+    const iFp = cab.findIndex(c => /factor\s+de\s+potencia/.test(c));
+    if (iFecha >= 0 && iKwh >= 0) return { fila: r, iFecha, iKwh, iFp };
+  }
+  return null;
+}
+// Devuelve "YYYY-MM-DDTHH:MM:00" (redondeado al minuto) o null.
+function parsearFechaHora(v){
+  if (v === null || v === undefined || v === "") return null;
+  let y, mo, d, h = 0, mi = 0, s = 0;
+  if (typeof v === "number"){
+    // Fecha serial de Excel (días desde 30/12/1899)
+    const ms = Math.round((v - 25569) * 86400000);
+    const dt = new Date(ms);
+    y = dt.getUTCFullYear(); mo = dt.getUTCMonth() + 1; d = dt.getUTCDate();
+    h = dt.getUTCHours(); mi = dt.getUTCMinutes(); s = dt.getUTCSeconds();
+  }else if (v instanceof Date){
+    y = v.getFullYear(); mo = v.getMonth() + 1; d = v.getDate();
+    h = v.getHours(); mi = v.getMinutes(); s = v.getSeconds();
+  }else{
+    const t = String(v).trim();
+    let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m){ y = +m[1]; mo = +m[2]; d = +m[3]; h = +(m[4] || 0); mi = +(m[5] || 0); s = +(m[6] || 0); }
+    else{
+      // Formato peruano: día/mes/año
+      m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]\.?\s*m\.?)?)?/i);
+      if (!m) return null;
+      d = +m[1]; mo = +m[2]; y = +m[3]; if (y < 100) y += 2000;
+      h = +(m[4] || 0); mi = +(m[5] || 0); s = +(m[6] || 0);
+      if (m[7]){ const pm = /p/i.test(m[7]); if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
+    }
+  }
+  if (!(y > 1990 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31)) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d, h, mi + (s >= 30 ? 1 : 0)));
+  const p = n => String(n).padStart(2, "0");
+  return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth() + 1)}-${p(dt.getUTCDate())}T${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}:00`;
+}
+function parsearNumero(v){
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  let t = String(v).trim().replace(/\s/g, "");
+  if (!t) return null;
+  if (t.includes(",") && t.includes(".")){
+    // el último separador es el decimal
+    t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  }else if (t.includes(",")){
+    t = (t.match(/,/g).length > 1) ? t.replace(/,/g, "") : t.replace(",", ".");
+  }else if ((t.match(/\./g) || []).length > 1){
+    t = t.replace(/\./g, "");   // 11.165.839 -> 11165839
+  }
+  const n = Number(t);
+  return isFinite(n) ? n : null;
+}
+function procesarFilasEnergia(filas){
+  const col = buscarColumnasEnergia(filas);
+  if (!col) throw new Error('No se encontraron las columnas "Fecha y hora" y "Energía activa#kWh".');
+  const porFecha = new Map();
+  let sinDatos = 0;
+  for (let r = col.fila + 1; r < filas.length; r++){
+    const f = filas[r] || [];
+    const fh = parsearFechaHora(f[col.iFecha]);
+    if (!fh) continue;
+    const kwh = parsearNumero(f[col.iKwh]);
+    const fp = col.iFp >= 0 ? parsearNumero(f[col.iFp]) : null;
+    if (kwh === null && fp === null){ sinDatos++; continue; }
+    const prev = porFecha.get(fh) || {};
+    porFecha.set(fh, {
+      fecha_hora: fh,
+      energia_kwh: kwh !== null ? kwh : (prev.energia_kwh ?? null),
+      factor_potencia: fp !== null ? fp : (prev.factor_potencia ?? null)
+    });
+  }
+  const lecturas = Array.from(porFecha.values()).sort((a, b) => a.fecha_hora < b.fecha_hora ? -1 : 1);
+  return {
+    lecturas,
+    sinDatos,
+    desde: lecturas.length ? lecturas[0].fecha_hora : null,
+    hasta: lecturas.length ? lecturas[lecturas.length - 1].fecha_hora : null
+  };
+}
+async function fechasEnergiaExistentes(desde, hasta){
+  const set = new Set();
+  const pasoQ = 1000;
+  for (let i = 0; ; i += pasoQ){
+    const { data, error } = await sb.from("energia_lecturas").select("fecha_hora")
+      .gte("fecha_hora", desde).lte("fecha_hora", hasta)
+      .order("fecha_hora", { ascending: true }).range(i, i + pasoQ - 1);
+    if (error) throw new Error(error.message + " (¿ya ejecutaste el script SQL de energía en Supabase?)");
+    data.forEach(r => set.add(String(r.fecha_hora).slice(0, 16)));
+    if (data.length < pasoQ) break;
+  }
+  return set;
+}
+// Upsert por fecha_hora. Se envían por separado las filas que solo traen kWh o solo FP,
+// para que un dato vacío en el archivo no borre uno que ya estaba guardado.
+async function guardarLecturasEnergia(lecturas, progreso){
+  const grupos = [
+    lecturas.filter(l => l.energia_kwh !== null && l.factor_potencia !== null),
+    lecturas.filter(l => l.energia_kwh !== null && l.factor_potencia === null).map(l => ({ fecha_hora: l.fecha_hora, energia_kwh: l.energia_kwh })),
+    lecturas.filter(l => l.energia_kwh === null && l.factor_potencia !== null).map(l => ({ fecha_hora: l.fecha_hora, factor_potencia: l.factor_potencia }))
+  ];
+  const ahora = new Date().toISOString();
+  let hechas = 0;
+  for (const g of grupos){
+    for (let i = 0; i < g.length; i += 500){
+      const lote = g.slice(i, i + 500).map(l => Object.assign({}, l, { actualizado: ahora }));
+      const { error } = await sb.from("energia_lecturas").upsert(lote, { onConflict: "fecha_hora" });
+      if (error) throw new Error(error.message);
+      hechas += lote.length;
+      if (progreso) progreso(hechas);
     }
   }
 }
@@ -1607,8 +1856,30 @@ async function guardarLecturaDiario(medidorNum, box){
 /* =========================================================
    PANTALLA: Análisis (Equipos Semanal + Planta Diario)
 ========================================================= */
+/* --- Pestañas del Dashboard (Agua / Energía) --- */
+function dashTabsHtml(){
+  const t = [
+    { id: "agua",    nombre: "Consumo de agua",       icono: "agua" },
+    { id: "energia", nombre: "Consumo energético",    icono: "energia" }
+  ];
+  return `<div class="dash-tabs" role="tablist">${t.map(x => `
+    <button class="dash-tab ${dashModulo === x.id ? "activo" : ""}" role="tab" aria-selected="${dashModulo === x.id}" data-mod="${x.id}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[x.icono]}</svg>${x.nombre}
+    </button>`).join("")}</div>`;
+}
+function activarDashTabs(){
+  app.querySelectorAll(".dash-tab").forEach(b => {
+    b.onclick = () => {
+      if (dashModulo === b.dataset.mod) return;
+      dashModulo = b.dataset.mod;
+      renderAnalisis();
+    };
+  });
+}
 async function renderAnalisis(){
-  app.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando datos...</div>`;
+  if (dashModulo === "energia") return renderDashEnergia();
+  app.innerHTML = dashTabsHtml() + `<div class="cargando"><div class="spinner"></div>Cargando datos...</div>`;
+  activarDashTabs();
   try{
     await Promise.all([
       lineasGlobal.length ? null : cargarLineas(),
@@ -1625,11 +1896,12 @@ async function renderAnalisis(){
       })
     ]);
   }catch(e){
-    if (vistaActual !== "dashboard") return;
-    app.innerHTML = `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${esc(e.message)}</div>`;
+    if (vistaActual !== "dashboard" || dashModulo !== "agua") return;
+    app.innerHTML = dashTabsHtml() + `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar: ${esc(e.message)}</div>`;
+    activarDashTabs();
     return;
   }
-  if (vistaActual !== "dashboard") return;
+  if (vistaActual !== "dashboard" || dashModulo !== "agua") return;
   renderPantallaAnalisis();
 }
 async function refrescarAnalisis(){
@@ -1639,7 +1911,8 @@ async function refrescarAnalisis(){
   await renderAnalisis();
 }
 function renderPantallaAnalisis(){
-  app.innerHTML = construirResumen() + construirSeccionEquipos() + construirSeccionDiario();
+  app.innerHTML = dashTabsHtml() + construirResumen() + construirSeccionEquipos() + construirSeccionDiario();
+  activarDashTabs();
   activarResumen();
 
   if (document.getElementById("selLinea")){
@@ -1802,17 +2075,25 @@ function dibujarGrafico(){
   }
   renderBarChart(document.getElementById("grafico"), items);
 }
-function renderBarChart(container, items){
+function renderBarChart(container, items, opc){
+  opc = opc || {};
   if (!items.length){
     container.innerHTML = `<div class="vacio">No hay datos para este filtro.</div>`;
     return;
   }
   const max = Math.max(...items.map(i => i.valor), 1);
-  const anchoBarra = 46;
-  const espacio = 22;
+  let anchoBarra = 46;
+  let espacio = 22;
+  if (opc.ajustar){
+    // Ajusta las barras al ancho disponible (mínimo 16 px por barra)
+    const disponible = (container.clientWidth || 320) - 8;
+    espacio = items.length > 20 ? 6 : 10;
+    anchoBarra = Math.max(16, Math.min(46, Math.floor((disponible - espacio) / items.length) - espacio));
+  }
+  const valorVertical = anchoBarra < 34;   // si la barra es angosta, el valor va vertical dentro de la barra
   const alturaMax = 200;
   const anchoSvg = items.length * (anchoBarra + espacio) + espacio;
-  const altoSvg = alturaMax + 110;
+  const altoSvg = alturaMax + (opc.ajustar ? 70 : 110);
   let barrasSvg = "";
   items.forEach((item, idx) => {
     const x = espacio + idx * (anchoBarra + espacio);
@@ -1820,9 +2101,15 @@ function renderBarChart(container, items){
     const y = alturaMax - alturaBarra + 20;
     const xCentro = x + anchoBarra / 2;
     const yEtiqueta = alturaMax + 26;
+    const texto = item.texto !== undefined ? item.texto : item.valor;
+    const valorSvg = valorVertical
+      ? (alturaBarra > 46
+          ? `<text x="${xCentro}" y="${y + 6}" text-anchor="end" dominant-baseline="central" font-size="10" fill="#fff" font-weight="700" transform="rotate(-90 ${xCentro} ${y + 6})">${texto}</text>`
+          : `<text x="${xCentro}" y="${y - 4}" text-anchor="start" dominant-baseline="central" font-size="10" fill="#083d73" font-weight="700" transform="rotate(-90 ${xCentro} ${y - 4})">${texto}</text>`)
+      : `<text x="${xCentro}" y="${y - 6}" text-anchor="middle" font-size="${opc.fuenteValor || 11}" fill="#083d73" font-weight="700">${texto}</text>`;
     barrasSvg += `
-      <rect x="${x}" y="${y}" width="${anchoBarra}" height="${alturaBarra}" rx="4" fill="#0b5cab"></rect>
-      <text x="${xCentro}" y="${y - 6}" text-anchor="middle" font-size="11" fill="#083d73" font-weight="700">${item.valor}</text>
+      <rect x="${x}" y="${y}" width="${anchoBarra}" height="${alturaBarra}" rx="4" fill="${item.color || opc.color || "#0b5cab"}"><title>${esc(item.tip || (item.label + ": " + item.valor))}</title></rect>
+      ${valorSvg}
       <text x="${xCentro}" y="${yEtiqueta}" text-anchor="end" font-size="10" fill="#5c6975" transform="rotate(-45 ${xCentro} ${yEtiqueta})">${item.label}</text>
     `;
   });
@@ -2198,12 +2485,13 @@ function semanasRango(){
   return cmpRango > 0 ? todas.slice(-cmpRango) : todas;
 }
 /* --- Indicadores (tiles) --- */
-function deltaHtml(v, sp){
-  if (!v) return `<div class="kpi-delta sin">Sin semana ${sp} para comparar</div>`;
+function deltaHtml(v, sp, comparado){
+  const ref = comparado || `semana ${sp}`;
+  if (!v) return `<div class="kpi-delta sin">Sin ${ref} para comparar</div>`;
   const icono = v.dir === "up" ? "▲" : (v.dir === "down" ? "▼" : "●");
   const cls = v.bueno === null ? "neutro" : (v.bueno ? "bueno" : "malo");
   const txt = v.dir === "flat" ? "Sin cambio" : `${v.pct > 0 ? "+" : ""}${fmtN(v.pct, 1)}%`;
-  return `<div class="kpi-delta"><span class="ic ${cls}">${icono}</span>${txt} vs semana ${sp}</div>`;
+  return `<div class="kpi-delta"><span class="ic ${cls}">${icono}</span>${txt} vs ${ref}</div>`;
 }
 function tileHtml(etiqueta, valor, unidad, deltaStr, nota){
   return `
@@ -2357,6 +2645,267 @@ function dibujarComparativo(){
   });
   renderLineChart(cont, { semanas, series, unidad: "m³", dec: 1, leyenda: false, valoresFinales: false, tabla: tablaCmp });
 }
+/* =========================================================
+   DASHBOARD · CONSUMO ENERGÉTICO
+   Datos: vista energia_diaria (Supabase). Consumo del intervalo =
+   lectura actual − lectura anterior; el día suma sus intervalos.
+========================================================= */
+async function cargarEnergiaDiaria(){
+  const filas = await traerTodo("energia_diaria", "dia,kwh,intervalos,desde,hasta,fp_prom,fp_min,fp_max,n_fp", ["dia"]);
+  energiaDiariaGlobal = filas.map(r => ({
+    dia: String(r.dia).slice(0, 10),
+    kwh: r.kwh === null ? null : Number(r.kwh),
+    intervalos: Number(r.intervalos || 0),
+    desde: r.desde ? String(r.desde).slice(0, 16) : null,
+    hasta: r.hasta ? String(r.hasta).slice(0, 16) : null,
+    fpProm: r.fp_prom === null ? null : Number(r.fp_prom),
+    fpMin: r.fp_min === null ? null : Number(r.fp_min),
+    fpMax: r.fp_max === null ? null : Number(r.fp_max),
+    nFp: Number(r.n_fp || 0)
+  }));
+  energiaDiariaGlobal.forEach(d => {
+    // Día completo: hay lectura al inicio (00:00) y al cierre (00:00 del día siguiente)
+    d.completo = d.kwh !== null && d.desde !== null && d.hasta !== null &&
+      d.desde <= `${d.dia}T00:00` && d.hasta >= `${diaSiguiente(d.dia)}T00:00`;
+  });
+}
+function diaSiguiente(iso){
+  const p = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + 1));
+  return d.toISOString().slice(0, 10);
+}
+function mesAnterior(mes){
+  const p = mes.split("-").map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 2, 1));
+  return d.toISOString().slice(0, 7);
+}
+async function renderDashEnergia(){
+  app.innerHTML = dashTabsHtml() + `<div class="cargando"><div class="spinner"></div>Cargando datos de energía...</div>`;
+  activarDashTabs();
+  try{
+    if (energiaDiariaGlobal === null) await cargarEnergiaDiaria();
+  }catch(e){
+    if (vistaActual !== "dashboard" || dashModulo !== "energia") return;
+    app.innerHTML = dashTabsHtml() + `<div class="mensaje-error" style="margin-top:40px;text-align:center;">No se pudo cargar la energía: ${esc(e.message)}<br>¿Ya ejecutaste el script SQL de energía en Supabase?</div>`;
+    activarDashTabs();
+    return;
+  }
+  if (vistaActual !== "dashboard" || dashModulo !== "energia") return;
+  renderPantallaEnergia();
+}
+async function refrescarEnergia(){
+  energiaDiariaGlobal = null;
+  cacheFpDia = {};
+  await renderDashEnergia();
+}
+function mesesEnergia(){
+  const set = new Set((energiaDiariaGlobal || []).map(d => d.dia.slice(0, 7)));
+  return Array.from(set).sort().reverse();
+}
+function diasDelMes(mes){
+  return (energiaDiariaGlobal || []).filter(d => d.dia.slice(0, 7) === mes).sort((a, b) => a.dia < b.dia ? -1 : 1);
+}
+function renderPantallaEnergia(){
+  const meses = mesesEnergia();
+  if (!meses.length){
+    app.innerHTML = dashTabsHtml() + `
+      <p class="subtitulo-seccion">Consumo energético</p>
+      <div class="vacio">Todavía no hay lecturas de energía. Cárgalas en “Medición de energía”.</div>`;
+    activarDashTabs();
+    return;
+  }
+  if (!meses.includes(filtroEnergiaMes)) filtroEnergiaMes = meses[0];
+  const diasFp = diasDelMes(filtroEnergiaMes).filter(d => d.nFp > 0).map(d => d.dia);
+  if (!diasFp.includes(filtroEnergiaDia)) filtroEnergiaDia = diasFp.length ? diasFp[diasFp.length - 1] : null;
+
+  app.innerHTML = dashTabsHtml() + `
+    <p class="subtitulo-seccion">Consumo energético</p>
+    <div class="filtros-box">
+      <div class="filtros-fila">
+        <div>
+          <label>Mes</label>
+          <select id="selEnergiaMes" class="campo">
+            ${meses.map(m => `<option value="${m}" ${m === filtroEnergiaMes ? "selected" : ""}>${formatearMesDMA(m)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="enKpis"></div>
+    <div class="grafico-box">
+      <p class="grafico-titulo">
+        <span id="tituloEnergia"></span>
+        <span style="float:right;">
+          <button id="btnTablaEnergia" class="link-actualizar" style="margin-right:12px;"></button>
+          <button class="link-actualizar" onclick="refrescarEnergia()">↻ actualizar</button>
+        </span>
+      </p>
+      <div id="graficoEnergia"></div>
+      <p class="nota-chica">Consumo de cada intervalo de 15 min = lectura actual − lectura anterior (Energía activa, kWh). El día suma sus intervalos de 00:15 a 24:00. Las barras claras son días incompletos (faltan lecturas al inicio o al cierre del día).</p>
+    </div>
+    <p class="subtitulo-seccion" style="margin-top:28px;">Factor de potencia</p>
+    <div class="grafico-box">
+      <p class="grafico-titulo" id="tituloFp"></p>
+      <div id="graficoFp"></div>
+      <p class="nota-chica">Promedio y mínimo diario de las lecturas de 15 min. La línea punteada marca la referencia de ${FP_REFERENCIA}%.</p>
+    </div>
+    <div class="grafico-box">
+      <p class="grafico-titulo">
+        <span id="tituloFpDia"></span>
+      </p>
+      <div class="filtros-fila" style="max-width:260px;">
+        <div>
+          <label>Día</label>
+          <select id="selEnergiaDia" class="campo">
+            ${diasFp.map(d => `<option value="${d}" ${d === filtroEnergiaDia ? "selected" : ""}>${formatearFechaDMA(d)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div id="graficoFpDia"></div>
+    </div>
+  `;
+  activarDashTabs();
+  document.getElementById("selEnergiaMes").onchange = (e) => { filtroEnergiaMes = e.target.value; renderPantallaEnergia(); };
+  document.getElementById("selEnergiaDia").onchange = (e) => { filtroEnergiaDia = e.target.value; dibujarFpDia(); };
+  document.getElementById("btnTablaEnergia").onclick = () => { tablaEnergia = !tablaEnergia; dibujarConsumoEnergia(); };
+  pintarKpisEnergia();
+  dibujarConsumoEnergia();
+  dibujarFpDiario();
+  dibujarFpDia();
+}
+function resumenMesEnergia(mes){
+  const dias = diasDelMes(mes);
+  const conKwh = dias.filter(d => d.kwh !== null);
+  const completos = conKwh.filter(d => d.completo);
+  const total = conKwh.reduce((s, d) => s + d.kwh, 0);
+  const baseProm = completos.length ? completos : conKwh;
+  const prom = baseProm.length ? baseProm.reduce((s, d) => s + d.kwh, 0) / baseProm.length : null;
+  let pico = null;
+  baseProm.forEach(d => { if (pico === null || d.kwh > pico.kwh) pico = d; });
+  const nFp = dias.reduce((s, d) => s + d.nFp, 0);
+  const fpMes = nFp ? dias.reduce((s, d) => s + (d.fpProm || 0) * d.nFp, 0) / nFp : null;
+  let fpMin = null;
+  dias.forEach(d => { if (d.fpMin !== null && (fpMin === null || d.fpMin < fpMin.fpMin)) fpMin = d; });
+  const diasBajoRef = dias.filter(d => d.fpProm !== null && d.fpProm < FP_REFERENCIA).length;
+  const diasFp = dias.filter(d => d.fpProm !== null).length;
+  return { dias, conKwh, completos, total: conKwh.length ? total : null, prom, pico, fpMes, fpMin, diasBajoRef, diasFp };
+}
+function pintarKpisEnergia(){
+  const r = resumenMesEnergia(filtroEnergiaMes);
+  const mp = mesAnterior(filtroEnergiaMes);
+  const rp = resumenMesEnergia(mp);
+  const deltaMes = (v) => deltaHtml(v, null, formatearMesDMA(mp));
+  const tiles = [];
+  tiles.push(tileHtml("Consumo del mes", fmtN(r.total, 0), r.total === null ? "" : "kWh",
+    `<div class="kpi-delta sin">${r.conKwh.length} día(s) con datos</div>`,
+    r.completos.length < r.conKwh.length ? `${r.conKwh.length - r.completos.length} día(s) incompleto(s)` : "Todos los días completos"));
+  tiles.push(tileHtml("Promedio diario", fmtN(r.prom, 0), r.prom === null ? "" : "kWh/día",
+    deltaMes(variacion(r.prom, rp.prom, false)),
+    r.completos.length ? `Promedio de ${r.completos.length} día(s) completo(s)` : "Sin días completos todavía"));
+  tiles.push(tileHtml("Día de mayor consumo", fmtN(r.pico ? r.pico.kwh : null, 0), r.pico ? "kWh" : "",
+    `<div class="kpi-delta sin">${r.pico ? formatearFechaDMA(r.pico.dia) : "—"}</div>`, ""));
+  tiles.push(tileHtml("Factor de potencia del mes", fmtN(r.fpMes, 1), r.fpMes === null ? "" : "%",
+    deltaMes(variacion(r.fpMes, rp.fpMes, true)), "Promedio de todas las lecturas de 15 min"));
+  tiles.push(tileHtml(`Días con FP bajo ${FP_REFERENCIA}%`, fmtN(r.diasBajoRef, 0), r.diasFp ? `de ${r.diasFp}` : "",
+    `<div class="kpi-delta sin">${r.fpMin ? `Mínimo ${fmtN(r.fpMin.fpMin, 1)}% el ${formatearFechaDMA(r.fpMin.dia)}` : "—"}</div>`,
+    "Según el promedio diario"));
+  document.getElementById("enKpis").innerHTML = `<div class="kpi-grid">${tiles.join("")}</div>`;
+}
+function dibujarConsumoEnergia(){
+  const dias = diasDelMes(filtroEnergiaMes).filter(d => d.kwh !== null);
+  document.getElementById("tituloEnergia").textContent = `Consumo energético diario — ${formatearMesDMA(filtroEnergiaMes)} (kWh)`;
+  document.getElementById("btnTablaEnergia").textContent = tablaEnergia ? "Ver gráfico" : "Ver tabla";
+  const cont = document.getElementById("graficoEnergia");
+  if (tablaEnergia){
+    const todos = diasDelMes(filtroEnergiaMes);
+    if (!todos.length){ cont.innerHTML = `<div class="vacio">No hay datos para este mes.</div>`; return; }
+    cont.innerHTML = `<div class="tabla-scroll"><table class="tabla-var">
+      <thead><tr><th>Día</th><th>kWh</th><th>FP prom.</th><th>FP mín.</th><th>FP máx.</th><th>Estado</th></tr></thead>
+      <tbody>${todos.map(d => `<tr>
+        <td>${formatearFechaDMA(d.dia)}</td>
+        <td>${fmtN(d.kwh, 0)}</td>
+        <td>${d.fpProm === null ? "—" : fmtN(d.fpProm, 1) + "%"}</td>
+        <td>${d.fpMin === null ? "—" : fmtN(d.fpMin, 1) + "%"}</td>
+        <td>${d.fpMax === null ? "—" : fmtN(d.fpMax, 1) + "%"}</td>
+        <td>${d.kwh === null ? "Sin kWh" : (d.completo ? "Completo" : "Incompleto")}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+    return;
+  }
+  const items = dias.map(d => ({
+    label: formatearFechaDMA(d.dia).slice(0, 5),
+    valor: Math.round(d.kwh),
+    texto: fmtN(d.kwh, 0),
+    color: d.completo ? "#A67C00" : "#E6D396",
+    tip: `${formatearFechaDMA(d.dia)}: ${fmtN(d.kwh, 0)} kWh${d.completo ? "" : " (día incompleto)"}`
+  }));
+  renderBarChart(cont, items, { fuenteValor: 10, ajustar: true });
+}
+function escalaMinFp(valores){
+  const v = valores.filter(x => x !== null);
+  if (!v.length) return 0;
+  const lo = Math.floor(Math.min(...v) / 10) * 10;
+  return Math.max(0, Math.min(lo, FP_REFERENCIA - 6));
+}
+function dibujarFpDiario(){
+  const dias = diasDelMes(filtroEnergiaMes).filter(d => d.fpProm !== null);
+  document.getElementById("tituloFp").textContent = `Factor de potencia diario — ${formatearMesDMA(filtroEnergiaMes)} (%)`;
+  const cont = document.getElementById("graficoFp");
+  const prom = dias.map(d => d.fpProm), min = dias.map(d => d.fpMin);
+  renderLineChart(cont, {
+    semanas: dias.map(d => d.dia),
+    etiquetas: dias.map(d => formatearFechaDMA(d.dia).slice(0, 5)),
+    titulosTip: dias.map(d => formatearFechaDMA(d.dia)),
+    tituloX: "Día",
+    series: [
+      { nombre: "FP promedio", color: PALETA_SERIES[0], valores: prom },
+      { nombre: "FP mínimo",   color: PALETA_SERIES[1], valores: min }
+    ],
+    unidad: "%", dec: 1, leyenda: true, valoresFinales: false, tabla: false,
+    yMin: escalaMinFp(min.concat(prom)), yMax: 100,
+    referencia: { valor: FP_REFERENCIA, texto: `Ref. ${FP_REFERENCIA}%` },
+    anchoPunto: 34, maxPuntos: 31
+  });
+}
+async function dibujarFpDia(){
+  const cont = document.getElementById("graficoFpDia");
+  const titulo = document.getElementById("tituloFpDia");
+  const dia = filtroEnergiaDia;
+  if (!dia){
+    titulo.textContent = "Factor de potencia cada 15 min";
+    cont.innerHTML = `<div class="vacio" style="margin:10px 0;">No hay lecturas de factor de potencia este mes.</div>`;
+    return;
+  }
+  titulo.textContent = `Factor de potencia cada 15 min — ${formatearFechaDMA(dia)} (%)`;
+  if (!cacheFpDia[dia]){
+    cont.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando...</div>`;
+    try{
+      const { data, error } = await sb.from("energia_lecturas").select("fecha_hora,factor_potencia")
+        .gt("fecha_hora", `${dia}T00:00:00`).lte("fecha_hora", `${diaSiguiente(dia)}T00:00:00`)
+        .order("fecha_hora", { ascending: true });
+      if (error) throw new Error(error.message);
+      cacheFpDia[dia] = data.filter(r => r.factor_potencia !== null)
+        .map(r => ({ fh: String(r.fecha_hora).slice(0, 16), fp: Number(r.factor_potencia) }));
+    }catch(e){
+      if (filtroEnergiaDia === dia && document.getElementById("graficoFpDia"))
+        cont.innerHTML = `<div class="mensaje-error">No se pudo cargar el detalle: ${esc(e.message)}</div>`;
+      return;
+    }
+  }
+  if (filtroEnergiaDia !== dia || !document.getElementById("graficoFpDia")) return;
+  const pts = cacheFpDia[dia];
+  const hora = fh => fh.slice(0, 10) === dia ? fh.slice(11, 16) : "24:00";
+  const valores = pts.map(p => p.fp);
+  renderLineChart(cont, {
+    semanas: pts.map(p => p.fh),
+    etiquetas: pts.map(p => hora(p.fh)),
+    titulosTip: pts.map(p => `${formatearFechaDMA(dia)} ${hora(p.fh)}`),
+    tituloX: "Hora",
+    series: [{ nombre: "Factor de potencia", color: PALETA_SERIES[0], valores }],
+    unidad: "%", dec: 1, leyenda: false, valoresFinales: false, tabla: false,
+    yMin: escalaMinFp(valores), yMax: 100,
+    referencia: { valor: FP_REFERENCIA, texto: `Ref. ${FP_REFERENCIA}%` },
+    anchoPunto: 9, maxPuntos: 0
+  });
+}
 /* --- Gráfico de líneas genérico (SVG) con cursor y tooltip --- */
 function escalaY(max){
   if (!(max > 0)) return { max: 1, paso: 0.25 };
@@ -2373,7 +2922,7 @@ function tablaLineChart(cfg){
   t.className = "tabla-var";
   const thead = document.createElement("thead");
   const trh = document.createElement("tr");
-  ["Semana"].concat(cfg.series.map(s => s.nombre)).forEach(txt => {
+  [cfg.tituloX || "Semana"].concat(cfg.series.map(s => s.nombre)).forEach(txt => {
     const th = document.createElement("th");
     th.textContent = txt;
     trh.appendChild(th);
@@ -2384,7 +2933,7 @@ function tablaLineChart(cfg){
   cfg.semanas.forEach((sem, i) => {
     const tr = document.createElement("tr");
     const td0 = document.createElement("td");
-    td0.textContent = String(sem);
+    td0.textContent = cfg.titulosTip ? cfg.titulosTip[i] : String(sem);
     tr.appendChild(td0);
     cfg.series.forEach(s => {
       const td = document.createElement("td");
@@ -2411,16 +2960,22 @@ function renderLineChart(cont, cfg){
   }
   const n = semanas.length;
   const ml = 44, mr = cfg.valoresFinales ? 48 : 16, mt = 14, mb = 30, H = 240;
-  const W = Math.max(300, cont.clientWidth || 320, n * 46 + ml + mr);
+  const W = Math.max(300, cont.clientWidth || 320, n * (cfg.anchoPunto || 46) + ml + mr);
   const pw = W - ml - mr, ph = H - mt - mb;
-  let max = 0;
+  const etiquetasX = cfg.etiquetas || semanas.map(s => "S" + s);
+  const titulosTip = cfg.titulosTip || semanas.map(s => "Semana " + s);
+  const yMin = cfg.yMin || 0;
+  let max = yMin;
   series.forEach(s => s.valores.forEach(v => { if (v !== null && v > max) max = v; }));
-  const esc_ = escalaY(max);
+  if (cfg.referencia && cfg.referencia.valor > max) max = cfg.referencia.valor;
+  const esc_ = escalaY(max - yMin);
+  let yTop = yMin + esc_.max;
+  if (cfg.yMax !== undefined && yTop > cfg.yMax && max <= cfg.yMax) yTop = cfg.yMax;
   const X = i => ml + (n === 1 ? pw / 2 : i * pw / (n - 1));
-  const Y = v => mt + ph - (v / esc_.max) * ph;
+  const Y = v => mt + ph - ((v - yMin) / (yTop - yMin)) * ph;
 
   let g = "";
-  for (let t = 0; t <= esc_.max + 1e-9; t += esc_.paso){
+  for (let t = yMin; t <= yTop + 1e-9; t += esc_.paso){
     g += `<line x1="${ml}" y1="${Y(t).toFixed(1)}" x2="${W - mr}" y2="${Y(t).toFixed(1)}" stroke="#e4e9ee" stroke-width="1"/>`;
     g += `<text x="${ml - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#8a97a3">${fmtN(t, 2)}</text>`;
   }
@@ -2428,8 +2983,13 @@ function renderLineChart(cont, cfg){
   semanas.forEach((s, i) => {
     if (i % salto !== 0 && i !== n - 1) return;
     if (i === n - 1 && i % salto !== 0 && (n - 1 - Math.floor((n - 1) / salto) * salto) < salto / 2) return;
-    g += `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="#5c6975">S${s}</text>`;
+    g += `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="#5c6975">${esc(etiquetasX[i])}</text>`;
   });
+  if (cfg.referencia){
+    const yr = Y(cfg.referencia.valor).toFixed(1), cr = cfg.referencia.color || "#c0392b";
+    g += `<line x1="${ml}" y1="${yr}" x2="${W - mr}" y2="${yr}" stroke="${cr}" stroke-width="1.2" stroke-dasharray="5,4"/>`;
+    g += `<text x="${W - mr - 2}" y="${(Y(cfg.referencia.valor) - 4).toFixed(1)}" text-anchor="end" font-size="10" fill="${cr}">${esc(cfg.referencia.texto)}</text>`;
+  }
 
   let lineas = "", puntos = "";
   series.forEach(s => {
@@ -2444,7 +3004,7 @@ function renderLineChart(cont, cfg){
       if (v === null) return;
       const aislado = (i === 0 || s.valores[i - 1] === null) && (i === n - 1 || s.valores[i + 1] === null);
       const ultimo = !s.valores.slice(i + 1).some(w => w !== null);
-      if (n <= 14 || aislado || ultimo){
+      if (n <= (cfg.maxPuntos || 14) || aislado || ultimo){
         puntos += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="4" fill="${s.color}" stroke="#fff" stroke-width="2"/>`;
       }
     });
@@ -2467,7 +3027,7 @@ function renderLineChart(cont, cfg){
 
   const leyenda = (cfg.leyenda && series.length > 1)
     ? `<div class="lc-leyenda">${series.map(s => `<span><i class="k" style="background:${s.color}"></i>${esc(s.nombre)}</span>`).join("")}</div>` : "";
-  const resumenA11y = `Gráfico de líneas, ${series.length} serie(s), semanas ${semanas[0]} a ${semanas[n - 1]}. Use las flechas para ver los valores.`;
+  const resumenA11y = `Gráfico de líneas, ${series.length} serie(s), de ${titulosTip[0]} a ${titulosTip[n - 1]}. Use las flechas para ver los valores.`;
   cont.innerHTML = `
     <div style="overflow-x:auto;">
       <div class="lc-wrap" style="width:${W}px;">
@@ -2492,7 +3052,7 @@ function renderLineChart(cont, cfg){
     hl.replaceChildren();
     tip.replaceChildren();
     const t = document.createElement("div");
-    t.className = "t"; t.textContent = "Semana " + semanas[i];
+    t.className = "t"; t.textContent = titulosTip[i];
     tip.appendChild(t);
     series.forEach(s => {
       const v = s.valores[i];
