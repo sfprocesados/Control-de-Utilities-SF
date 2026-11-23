@@ -334,18 +334,44 @@
   .filtros-en-grafico > div{min-width:150px;}
   .spark-celda{text-align:center !important;}
   .fila-total td{font-weight:700;background:#f6f8fb;}
-  .tabla-reporte th, .tabla-reporte td{vertical-align:top;text-align:left !important;}
-  .tabla-reporte td:nth-child(2), .tabla-reporte td:nth-child(5), .tabla-reporte td:nth-child(6){white-space:nowrap;}
-  .tabla-reporte th:nth-child(3), .tabla-reporte th:nth-child(4){text-align:right !important;}
-  .tabla-reporte td.num{text-align:right !important;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  .tabla-reporte tr.rep-semana td{background:#eef3f9;font-weight:800;color:var(--azul-oscuro);text-align:left;}
-  .tabla-reporte tr.rep-semana span{font-weight:600;color:#5c6975;margin-left:8px;font-size:12.5px;}
-  .tabla-reporte tr.rep-mod td{background:#fff8e8;}
-  .tabla-reporte .sutil{color:var(--gris);font-size:12px;}
+  /* --- Reporte de lecturas (semanas en columnas; tarjetas en celular) --- */
   .tag-falta{display:inline-block;background:#fdecea;color:#b3261e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;}
-  .tag-mod{display:inline-block;background:#ffefc9;color:#8a4b00;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;white-space:nowrap;}
-  .rep-cambio{font-size:12px;white-space:nowrap;color:#3d4a56;}
-  .rep-cambio s{color:#b3261e;}
+  .sutil{color:var(--gris);font-size:12px;}
+  .rep-tabla-wrap{overflow-x:auto;border:1px solid var(--borde);border-radius:10px;}
+  .rep-pivot{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
+  .rep-pivot th{background:#f6f8fb;font-size:11.5px;font-weight:700;color:#5c6975;padding:7px 8px;border-bottom:1px solid var(--borde);white-space:nowrap;text-align:right;}
+  .rep-pivot th.grupo{text-align:center;color:var(--azul-oscuro);font-size:12px;border-bottom:1px solid var(--borde);}
+  .rep-pivot th.grupo-c{background:#eef5ff;}
+  .rep-pivot td{padding:7px 8px;border-bottom:1px solid #eef1f4;text-align:right;vertical-align:top;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .rep-pivot .col-med{position:sticky;left:0;z-index:1;background:#fff;text-align:left;white-space:normal;min-width:150px;max-width:220px;border-right:1px solid var(--borde);}
+  .rep-pivot thead .col-med{background:#f6f8fb;z-index:2;vertical-align:bottom;}
+  .rep-pivot .sep{border-left:2px solid #c9d8ea;}
+  .rep-pivot tfoot td{background:#f6f8fb;font-weight:700;border-bottom:none;}
+  .rep-pivot tfoot .col-med{background:#f6f8fb;}
+  .rep-pivot td.c-mod, .rep-mini tr.c-mod td{background:#fff8e8;}
+  .v{font-weight:600;color:var(--texto);}
+  .m{font-size:11px;color:var(--gris);}
+  .mod{font-size:11px;color:#8a4b00;font-weight:700;line-height:1.3;cursor:help;}
+  .rep-var{display:inline-block;font-size:11px;font-weight:700;border-radius:5px;padding:0 4px;margin-top:2px;}
+  .rep-var.sube{color:#b3261e;background:#fdecea;}
+  .rep-var.baja{color:#1d5fa8;background:#e8f1fc;}
+  .rep-cards{display:none;}
+  .rep-card{border:1px solid var(--borde);border-radius:12px;padding:10px 12px;background:#fff;}
+  .rep-card.total{background:#f6f8fb;}
+  .rep-card-tit{font-size:14px;color:var(--azul-oscuro);margin-bottom:6px;}
+  .rep-mini{width:100%;border-collapse:collapse;font-size:13px;}
+  .rep-mini th{font-size:11px;color:#5c6975;font-weight:700;text-align:right;padding:4px 6px;border-bottom:1px solid var(--borde);}
+  .rep-mini th:first-child, .rep-mini td:first-child{text-align:left;white-space:nowrap;}
+  .rep-mini td{padding:6px;border-bottom:1px solid #eef1f4;text-align:right;vertical-align:top;font-variant-numeric:tabular-nums;}
+  .rep-mini tr:last-child td{border-bottom:none;}
+  /* Celular y tablet vertical: tarjetas */
+  @media (max-width:819px){
+    .rep-tabla-wrap{display:none;}
+    .rep-cards{display:grid;grid-template-columns:1fr;gap:10px;}
+  }
+  @media (min-width:600px) and (max-width:819px){
+    .rep-cards{grid-template-columns:1fr 1fr;}
+  }
   /* --- Lectura: alerta temprana y cámara IA --- */
   .lectura-fila{display:flex;gap:8px;align-items:stretch;}
   .lectura-fila .campo{flex:1;min-width:0;}
@@ -823,7 +849,7 @@ async function irA(vista){
   const esMenu = vista === "menu";
   document.getElementById("cabecera").className = esMenu ? "modo-home" : "modo-interno";
   document.getElementById("tituloHeader").textContent = VISTAS[vista].titulo;
-  app.className = esMenu ? "home" : (vista === "agua" ? "ancho" : "");
+  app.className = esMenu ? "home" : ((vista === "agua" || vista === "dashboard") ? "ancho" : "");
   if (vista === "menu") renderMenu();
   else if (vista === "agua") renderAgua();
   else if (vista === "agua_equipos") await renderRegistro();
@@ -3014,13 +3040,13 @@ function construirSeccionReporte(){
     .concat(lineasGlobal.map(l => `<option value="${l.medidorNum}" ${String(l.medidorNum) === repMedidor ? "selected" : ""}>M${l.medidorNum} ${esc(l.nombre)}</option>`)).join("");
   return `
     <div id="reporteCont">
-      <p class="subtitulo-seccion" style="margin-top:28px;">Reporte de lecturas — Equipos (Semanal)</p>
+      <p class="subtitulo-seccion" style="margin-top:28px;">Reporte de lecturas y consumo — Equipos (Semanal)</p>
       <div class="grafico-box">
         <div class="filtros-fila filtros-en-grafico">
           <div>
             <label>Semanas</label>
             <select id="selRepSemanas" class="campo">
-              ${[[4,"Últimas 4"],[8,"Últimas 8"],[12,"Últimas 12"]].map(o => `<option value="${o[0]}" ${repSemanas===o[0]?"selected":""}>${o[1]}</option>`).join("")}
+              ${[[4,"Últimas 4"],[6,"Últimas 6"],[8,"Últimas 8"]].map(o => `<option value="${o[0]}" ${repSemanas===o[0]?"selected":""}>${o[1]}</option>`).join("")}
             </select>
           </div>
           <div>
@@ -3030,7 +3056,7 @@ function construirSeccionReporte(){
           <div>
             <label>Mostrar</label>
             <select id="selRepMostrar" class="campo">
-              ${[["todas","Todas las lecturas"],["modificadas","Solo modificadas"],["faltantes","Solo faltantes"]].map(o => `<option value="${o[0]}" ${repMostrar===o[0]?"selected":""}>${o[1]}</option>`).join("")}
+              ${[["todas","Todos los medidores"],["modificadas","Con lecturas modificadas"],["faltantes","Con lecturas faltantes"]].map(o => `<option value="${o[0]}" ${repMostrar===o[0]?"selected":""}>${o[1]}</option>`).join("")}
             </select>
           </div>
         </div>
@@ -3090,30 +3116,59 @@ function fmtFechaHoraLocal(ts){
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 // Arma las filas del reporte (una por medidor y semana), incluidas las faltantes
+// Una fila por medidor; en cada una, una celda por semana (lectura, consumo y auditoría)
 function filasReporte(){
-  const { filas, cambios, semanas } = repDatos;
+  const { filas, cambios } = repDatos;
+  const semanas = repDatos.semanas.slice().sort((a, b) => a - b);   // de la más antigua a la más reciente
   const porClave = {};
   filas.forEach(f => { porClave[`${f.medidor_num}|${f.semana}`] = f; });
   const camPorClave = {};
   cambios.forEach(c => { (camPorClave[`${c.medidor_num}|${c.semana}`] = camPorClave[`${c.medidor_num}|${c.semana}`] || []).push(c); });
-  const lineas = lineasGlobal.filter(l => !repMedidor || String(l.medidorNum) === repMedidor);
-  const out = [];
-  semanas.forEach(w => {
-    lineas.forEach(l => {
+  let lineas = lineasGlobal.filter(l => !repMedidor || String(l.medidorNum) === repMedidor);
+  const out = lineas.map(l => {
+    const cg = (consumoGlobal || []).find(x => x.medidorNum === l.medidorNum);
+    const celdas = semanas.map(w => {
       const f = porClave[`${l.medidorNum}|${w}`] || null;
-      const cg = (consumoGlobal || []).find(x => x.medidorNum === l.medidorNum);
-      out.push({
-        semana: w, medidorNum: l.medidorNum, nombre: l.nombre,
+      return {
+        semana: w,
         lectura: f ? Number(f.lectura) : null,
         fecha: f ? f.fecha : null,
         consumo: (f && cg) ? consumoDe(cg, w) : null,
         creado: f ? f.creado : null,
         modificado: f ? f.modificado : null,
         cambios: camPorClave[`${l.medidorNum}|${w}`] || []
-      });
+      };
     });
+    return { medidorNum: l.medidorNum, nombre: l.nombre, celdas,
+      tieneMod: celdas.some(c => c.modificado || c.cambios.length),
+      tieneFalta: celdas.some(c => c.lectura === null) };
   });
-  return out;
+  if (repMostrar === "modificadas") return { semanas, filas: out.filter(f => f.tieneMod), todas: out };
+  if (repMostrar === "faltantes") return { semanas, filas: out.filter(f => f.tieneFalta), todas: out };
+  return { semanas, filas: out, todas: out };
+}
+function fmtCorto(ts){ return fmtFechaHoraLocal(ts).replace(/\/\d{4}/, ""); }   // dd/mm hh:mm
+// Variación de consumo frente a la semana anterior (solo se marca si es alta)
+function marcaVariacion(act, ant){
+  if (act === null || ant === null || ant <= 0 || act < 0) return "";
+  const pct = (act - ant) / ant * 100, dif = Math.abs(act - ant);
+  if (Math.abs(pct) < UMBRAL_PCT || dif < UMBRAL_M3) return "";
+  return `<span class="rep-var ${pct > 0 ? "sube" : "baja"}">${pct > 0 ? "▲" : "▼"} ${pct > 0 ? "+" : ""}${fmtN(pct, 0)}%</span>`;
+}
+function celdaLecturaHtml(c){
+  if (c.lectura === null) return `<span class="tag-falta">Falta</span>`;
+  let h = `<div class="v">${fmtN(c.lectura, 2)}</div>`;
+  h += c.creado ? `<div class="m">reg. ${fmtCorto(c.creado)}</div>` : (c.fecha ? `<div class="m">${formatearFechaDMA(c.fecha).slice(0, 5)}</div>` : "");
+  if (c.modificado || c.cambios.length){
+    const ult = c.cambios[c.cambios.length - 1];
+    const tip = c.cambios.map(x => `${fmtFechaHoraLocal(x.cambiado_en)}: ${fmtN(Number(x.lectura_anterior), 2)} → ${fmtN(Number(x.lectura_nueva), 2)}`).join("\n");
+    h += `<div class="mod" title="${esc(tip)}">✎ ${c.modificado ? fmtCorto(c.modificado) : ""}${ult ? `<br>antes ${fmtN(Number(ult.lectura_anterior), 2)}` : ""}${c.cambios.length > 1 ? ` (${c.cambios.length} cambios)` : ""}</div>`;
+  }
+  return h;
+}
+function celdaConsumoHtml(c, ant){
+  if (c.consumo === null) return `<span class="sutil">—</span>`;
+  return `<div class="v ${c.consumo < 0 ? "txt-malo" : ""}">${fmtN(c.consumo, 2)}</div>${marcaVariacion(c.consumo, ant ? ant.consumo : null)}`;
 }
 async function pintarReporte(){
   const cont = document.getElementById("repTabla");
@@ -3129,53 +3184,63 @@ async function pintarReporte(){
     }
     if (!document.getElementById("repTabla")) return;
   }
-  const todas = filasReporte();
   const nota = document.getElementById("repNota");
-  nota.innerHTML = repDatos.conAuditoria
-    ? `“Registrado” es la fecha y hora en que se guardó la lectura por primera vez; “Modificado”, la última vez que se cambió el número. Las lecturas guardadas antes de activar este reporte no tienen hora de registro.`
-    : `<b>Falta activar la auditoría:</b> ejecuta <code>auditoria_lecturas.sql</code> en Supabase (SQL Editor) para ver fecha y hora de registro y de cada modificación. Por ahora solo se muestran los valores.`;
-  // Resumen por semana
-  const semanas = repDatos.semanas;
-  const resumen = semanas.map(w => {
-    const fw = todas.filter(f => f.semana === w);
-    const ok = fw.filter(f => f.lectura !== null).length;
-    return `S${w}: ${ok}/${fw.length}`;
-  }).join(" · ");
-  document.getElementById("repResumen").textContent = semanas.length ? `Registrados — ${resumen}` : "";
-  let filas = todas;
-  if (repMostrar === "modificadas") filas = filas.filter(f => f.modificado || f.cambios.length);
-  if (repMostrar === "faltantes") filas = filas.filter(f => f.lectura === null);
-  if (!filas.length){
+  nota.innerHTML = (repDatos.conAuditoria
+    ? `“reg.” = fecha y hora en que se guardó la lectura; ✎ = se modificó (fecha, hora y valor anterior; pasa el mouse para ver todos los cambios). Las lecturas guardadas antes de activar la auditoría solo muestran la fecha.`
+    : `<b>Falta activar la auditoría:</b> ejecuta <code>auditoria_lecturas.sql</code> en Supabase (SQL Editor) para ver hora de registro y modificaciones. Por ahora solo se muestran los valores.`)
+    + ` ▲/▼ marca consumos que varían ${UMBRAL_PCT}% o más (y al menos ${UMBRAL_M3} m³) frente a la semana anterior.`;
+  const { semanas, filas, todas } = filasReporte();
+  document.getElementById("repResumen").textContent = semanas.length
+    ? "Registrados — " + semanas.map((w, i) => `S${w}: ${todas.filter(f => f.celdas[i].lectura !== null).length}/${todas.length}`).join(" · ")
+    : "";
+  if (!semanas.length || !filas.length){
     cont.innerHTML = `<div class="vacio" style="margin:10px 0;">${repMostrar === "faltantes" ? "No falta ninguna lectura en estas semanas." : repMostrar === "modificadas" ? "No hay lecturas modificadas en estas semanas." : "No hay lecturas en estas semanas."}</div>`;
     return;
   }
-  let html = "", semanaAnt = null;
-  filas.forEach(f => {
-    if (f.semana !== semanaAnt){
-      const fw = todas.filter(x => x.semana === f.semana);
-      const ok = fw.filter(x => x.lectura !== null).length;
-      html += `<tr class="rep-semana"><td colspan="7">Semana ${f.semana} <span>${ok} de ${fw.length} registrados${ok < fw.length ? ` · faltan ${fw.length - ok}` : " ✓"}</span></td></tr>`;
-      semanaAnt = f.semana;
-    }
-    const historial = f.cambios.length
-      ? f.cambios.map(c => `<div class="rep-cambio">${fmtFechaHoraLocal(c.cambiado_en)}: <s>${fmtN(Number(c.lectura_anterior), 2)}</s> → <b>${fmtN(Number(c.lectura_nueva), 2)}</b></div>`).join("")
-      : "—";
-    const consumoTxt = f.consumo === null ? "—" : `<span class="${f.consumo < 0 ? "txt-malo" : ""}">${fmtN(f.consumo, 2)}</span>`;
-    html += f.lectura === null
-      ? `<tr class="rep-falta"><td>${f.semana}</td><td>M${f.medidorNum} ${esc(f.nombre)}</td><td colspan="5"><span class="tag-falta">Falta registrar</span></td></tr>`
-      : `<tr class="${f.modificado || f.cambios.length ? "rep-mod" : ""}">
-          <td>${f.semana}</td>
-          <td>M${f.medidorNum} ${esc(f.nombre)}</td>
-          <td class="num">${fmtN(f.lectura, 2)}</td>
-          <td class="num">${consumoTxt}</td>
-          <td>${f.creado ? fmtFechaHoraLocal(f.creado) : `<span class="sutil">${f.fecha ? formatearFechaDMA(f.fecha) + " (sin hora)" : "—"}</span>`}</td>
-          <td>${f.modificado ? `<span class="tag-mod">✎ ${fmtFechaHoraLocal(f.modificado)}</span>` : "—"}</td>
-          <td>${historial}</td>
-        </tr>`;
-  });
-  cont.innerHTML = `<div class="tabla-scroll"><table class="tabla-var tabla-reporte">
-    <thead><tr><th>Sem</th><th>Medidor</th><th>Lectura</th><th>Consumo (m³)</th><th>Registrado</th><th>Modificado</th><th>Cambios (antes → después)</th></tr></thead>
-    <tbody>${html}</tbody></table></div>`;
+  // Totales de consumo por semana (solo medidores mostrados)
+  const totales = semanas.map((w, i) => sumaONull(filas.map(f => f.celdas[i].consumo)));
+  const registrados = semanas.map((w, i) => filas.filter(f => f.celdas[i].lectura !== null).length);
+
+  // --- PC y tablet horizontal: tabla con semanas en columnas ---
+  const tabla = `
+    <div class="rep-tabla-wrap"><table class="rep-pivot">
+      <thead>
+        <tr><th rowspan="2" class="col-med">Medidor</th>
+          <th colspan="${semanas.length}" class="grupo">Lectura del medidor</th>
+          <th colspan="${semanas.length}" class="grupo grupo-c">Consumo (m³)</th></tr>
+        <tr>${semanas.map(w => `<th>Sem ${w}</th>`).join("")}${semanas.map((w, i) => `<th class="${i === 0 ? "sep" : ""}">Sem ${w}</th>`).join("")}</tr>
+      </thead>
+      <tbody>${filas.map(f => `
+        <tr class="${f.tieneMod ? "con-mod" : ""}">
+          <td class="col-med"><b>M${f.medidorNum}</b> ${esc(f.nombre)}</td>
+          ${f.celdas.map(c => `<td class="${c.modificado || c.cambios.length ? "c-mod" : ""}">${celdaLecturaHtml(c)}</td>`).join("")}
+          ${f.celdas.map((c, i) => `<td class="${i === 0 ? "sep" : ""}">${celdaConsumoHtml(c, f.celdas[i - 1])}</td>`).join("")}
+        </tr>`).join("")}
+      </tbody>
+      <tfoot><tr>
+        <td class="col-med">Total${repMedidor ? "" : " equipos"}</td>
+        ${registrados.map(n => `<td><span class="sutil">${n}/${filas.length} reg.</span></td>`).join("")}
+        ${totales.map((t, i) => `<td class="${i === 0 ? "sep" : ""}"><div class="v">${fmtN(t, 2)}</div>${marcaVariacion(t, i ? totales[i - 1] : null)}</td>`).join("")}
+      </tr></tfoot>
+    </table></div>`;
+
+  // --- Celular y tablet vertical: una tarjeta por medidor ---
+  const tarjetas = `<div class="rep-cards">${filas.map(f => `
+    <div class="rep-card ${f.tieneMod ? "con-mod" : ""}">
+      <div class="rep-card-tit"><b>M${f.medidorNum}</b> ${esc(f.nombre)}</div>
+      <table class="rep-mini">
+        <thead><tr><th>Semana</th><th>Lectura</th><th>Consumo m³</th></tr></thead>
+        <tbody>${f.celdas.map((c, i) => `<tr class="${c.modificado || c.cambios.length ? "c-mod" : ""}">
+          <td>Sem ${c.semana}</td><td>${celdaLecturaHtml(c)}</td><td>${celdaConsumoHtml(c, f.celdas[i - 1])}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`).join("")}
+    <div class="rep-card total">
+      <div class="rep-card-tit">Total${repMedidor ? "" : " equipos"}</div>
+      <table class="rep-mini"><tbody>${semanas.map((w, i) => `<tr><td>Sem ${w}</td><td><span class="sutil">${registrados[i]}/${filas.length} reg.</span></td><td><div class="v">${fmtN(totales[i], 2)}</div>${marcaVariacion(totales[i], i ? totales[i - 1] : null)}</td></tr>`).join("")}</tbody></table>
+    </div>
+  </div>`;
+  cont.innerHTML = tabla + tarjetas;
 }
 async function descargarReporteExcel(){
   if (!repDatos) return;
@@ -3184,24 +3249,33 @@ async function descargarReporteExcel(){
   btn.textContent = "Preparando...";
   try{
     const XLSX = await cargarSheetJS();
-    let filas = filasReporte();
-    if (repMostrar === "modificadas") filas = filas.filter(f => f.modificado || f.cambios.length);
-    if (repMostrar === "faltantes") filas = filas.filter(f => f.lectura === null);
-    const aoa = [["Semana", "Medidor", "Equipo", "Lectura", "Consumo (m³)", "Registrado", "Modificado", "Cambios (antes → después)"]];
-    filas.forEach(f => aoa.push([
-      f.semana, f.medidorNum, f.nombre,
-      f.lectura === null ? "FALTA" : f.lectura,
-      f.consumo === null ? "" : Number(f.consumo.toFixed(2)),
-      f.creado ? fmtFechaHoraLocal(f.creado) : (f.fecha ? formatearFechaDMA(f.fecha) : ""),
-      f.modificado ? fmtFechaHoraLocal(f.modificado) : "",
-      f.cambios.map(c => `${fmtFechaHoraLocal(c.cambiado_en)}: ${c.lectura_anterior} -> ${c.lectura_nueva}`).join(" | ")
-    ]));
+    const { semanas, filas } = filasReporte();
+    const cab1 = ["Medidor", "Equipo"]
+      .concat(semanas.map((w, i) => i === 0 ? "Lectura del medidor" : ""))
+      .concat(semanas.map((w, i) => i === 0 ? "Consumo (m³)" : ""))
+      .concat(semanas.map((w, i) => i === 0 ? "Registrado" : ""))
+      .concat(semanas.map((w, i) => i === 0 ? "Modificado" : ""))
+      .concat(["Cambios (antes → después)"]);
+    const sem = semanas.map(w => `Sem ${w}`);
+    const cab2 = ["", ""].concat(sem, sem, sem, sem, [""]);
+    const aoa = [cab1, cab2];
+    filas.forEach(f => aoa.push(
+      [f.medidorNum, f.nombre]
+        .concat(f.celdas.map(c => c.lectura === null ? "FALTA" : c.lectura))
+        .concat(f.celdas.map(c => c.consumo === null ? "" : Number(c.consumo.toFixed(2))))
+        .concat(f.celdas.map(c => c.creado ? fmtFechaHoraLocal(c.creado) : (c.fecha ? formatearFechaDMA(c.fecha) : "")))
+        .concat(f.celdas.map(c => c.modificado ? fmtFechaHoraLocal(c.modificado) : ""))
+        .concat([f.celdas.flatMap(c => c.cambios.map(x => `Sem ${c.semana} ${fmtFechaHoraLocal(x.cambiado_en)}: ${x.lectura_anterior} -> ${x.lectura_nueva}`)).join(" | ")])
+    ));
+    const totales = semanas.map((w, i) => sumaONull(filas.map(f => f.celdas[i].consumo)));
+    aoa.push(["", "TOTAL"].concat(semanas.map(() => ""), totales.map(t => t === null ? "" : Number(t.toFixed(2)))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 8 }, { wch: 9 }, { wch: 32 }, { wch: 12 }, { wch: 13 }, { wch: 17 }, { wch: 17 }, { wch: 60 }];
+    const n = semanas.length;
+    ws["!merges"] = [0, 1, 2, 3].map(g => ({ s: { r: 0, c: 2 + g * n }, e: { r: 0, c: 1 + (g + 1) * n } }));
+    ws["!cols"] = [{ wch: 8 }, { wch: 30 }].concat(Array(n * 2).fill({ wch: 11 }), Array(n * 2).fill({ wch: 16 }), [{ wch: 60 }]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Lecturas");
-    const sems = repDatos.semanas;
-    XLSX.writeFile(wb, `Reporte_lecturas_agua_S${sems[sems.length - 1]}-S${sems[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Lecturas y consumo");
+    XLSX.writeFile(wb, `Reporte_agua_S${semanas[0]}-S${semanas[n - 1]}.xlsx`);
   }catch(e){
     alertaSimple("No se pudo generar el Excel: " + e.message);
   }finally{
