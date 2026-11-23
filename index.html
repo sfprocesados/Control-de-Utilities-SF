@@ -334,6 +334,18 @@
   .filtros-en-grafico > div{min-width:150px;}
   .spark-celda{text-align:center !important;}
   .fila-total td{font-weight:700;background:#f6f8fb;}
+  .tabla-reporte th, .tabla-reporte td{vertical-align:top;text-align:left !important;}
+  .tabla-reporte td:nth-child(2), .tabla-reporte td:nth-child(5), .tabla-reporte td:nth-child(6){white-space:nowrap;}
+  .tabla-reporte th:nth-child(3), .tabla-reporte th:nth-child(4){text-align:right !important;}
+  .tabla-reporte td.num{text-align:right !important;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tabla-reporte tr.rep-semana td{background:#eef3f9;font-weight:800;color:var(--azul-oscuro);text-align:left;}
+  .tabla-reporte tr.rep-semana span{font-weight:600;color:#5c6975;margin-left:8px;font-size:12.5px;}
+  .tabla-reporte tr.rep-mod td{background:#fff8e8;}
+  .tabla-reporte .sutil{color:var(--gris);font-size:12px;}
+  .tag-falta{display:inline-block;background:#fdecea;color:#b3261e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;}
+  .tag-mod{display:inline-block;background:#ffefc9;color:#8a4b00;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;white-space:nowrap;}
+  .rep-cambio{font-size:12px;white-space:nowrap;color:#3d4a56;}
+  .rep-cambio s{color:#b3261e;}
   /* --- Lectura: alerta temprana y cámara IA --- */
   .lectura-fila{display:flex;gap:8px;align-items:stretch;}
   .lectura-fila .campo{flex:1;min-width:0;}
@@ -1036,6 +1048,7 @@ async function guardarLectura(medidorNum, box){
     lecturasSemana[medidorNum] = valor;
     cacheLecturasPorSemana[semanaActual] = lecturasSemana;
     consumoGlobal = null; // los datos de consumo quedaron desactualizados
+    repDatos = null;      // el reporte de lecturas también
     cargarConsumoSemanal().catch(() => {});   // referencia para la próxima alerta
     lineaAbierta = null;
     renderListaLineas(false);
@@ -1181,7 +1194,7 @@ function activarCampoLectura(box, obtenerRef, tipo){
     nota.className = "ia-nota";
     nota.innerHTML = `<span class="spinner chico"></span> Leyendo el medidor con IA…`;
     try{
-      const r = await leerMedidorConIA(f);
+      const r = await leerMedidorConIA(f, t => { nota.innerHTML = `<span class="spinner chico"></span> ${esc(t)}`; });
       if (r.lectura === null || r.lectura === undefined || !r.legible){
         nota.className = "ia-nota mal";
         nota.textContent = "La IA no pudo leer el número" + (r.comentario ? `: ${r.comentario}` : ".") + " Digítalo manualmente o toma otra foto más cerca y con luz.";
@@ -1203,7 +1216,7 @@ function activarCampoLectura(box, obtenerRef, tipo){
 }
 /* --- Visión IA (Gemini) vía la función “leer-medidor” de Supabase.
        La clave de Gemini queda guardada en Supabase, nunca en esta página. --- */
-const FUNCION_IA = "leer-medidor";
+const FUNCION_IA = "quick-function";   // nombre de la Edge Function en Supabase
 async function imagenABase64(file, maxLado){
   const bmp = await createImageBitmap(file);
   const escala = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
@@ -1214,13 +1227,27 @@ async function imagenABase64(file, maxLado){
   if (bmp.close) bmp.close();
   return c.toDataURL("image/jpeg", 0.85).split(",")[1];
 }
-async function leerMedidorConIA(file){
-  const imagen = await imagenABase64(file, 1600);
-  const { data, error } = await sb.functions.invoke(FUNCION_IA, { body: { imagen, mime: "image/jpeg" } });
-  if (error){
-    let msg = error.message || String(error);
-    try{ const det = await error.context.json(); if (det && det.error) msg = det.error; }catch(_){}
-    throw new Error(msg + ". ¿Está publicada la función “leer-medidor” en Supabase?");
+async function leerMedidorConIA(file, aviso){
+  const imagen = await imagenABase64(file, 1280);
+  let data = null, ultimoError = "";
+  // Gemini a veces responde "saturado" (503) o "límite" (429): se reintenta 1 vez
+  for (let intento = 1; intento <= 2; intento++){
+    const r = await sb.functions.invoke(FUNCION_IA, { body: { imagen, mime: "image/jpeg" } });
+    if (!r.error){ data = r.data; break; }
+    let msg = r.error.message || String(r.error);
+    try{ const det = await r.error.context.json(); if (det && det.error) msg = det.error; }catch(_){}
+    ultimoError = msg;
+    const temporal = /\b(503|429|500)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded/i.test(msg);
+    if (!temporal || intento === 2) break;
+    if (aviso) aviso(`Gemini está ocupado, reintentando…`);
+    await new Promise(ok => setTimeout(ok, intento * 2500));
+  }
+  if (data === null){
+    if (/\b(503|429)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand/i.test(ultimoError))
+      throw new Error("Gemini está saturado en este momento. Espera unos segundos y vuelve a tomar la foto, o digita el número.");
+    if (/not found|NOT_FOUND|Failed to send/i.test(ultimoError))
+      throw new Error(`No se encontró la función “${FUNCION_IA}” en Supabase.`);
+    throw new Error(ultimoError);
   }
   const lectura = data && data.lectura !== null && data.lectura !== undefined ? Number(data.lectura) : null;
   return { lectura: isNaN(lectura) ? null : lectura, legible: !!(data && data.legible), comentario: data && data.comentario ? String(data.comentario) : "" };
@@ -2129,15 +2156,17 @@ async function renderAnalisis(){
 }
 async function refrescarAnalisis(){
   cacheMesSemana = {};
+  repDatos = null;
   consumoGlobal = null;
   consumoDiarioGlobal = null;
   kgGlobal = null;
   await renderAnalisis();
 }
 function renderPantallaAnalisis(){
-  app.innerHTML = dashTabsHtml() + construirResumen() + construirSeccionDiario();
+  app.innerHTML = dashTabsHtml() + construirResumen() + construirSeccionDiario() + construirSeccionReporte();
   activarDashTabs();
   activarResumen();
+  activarReporte();
   if (document.getElementById("selMedicionDiario")){
     document.getElementById("selMedicionDiario").onchange = (e) => {
       filtroDiarioMedicion = e.target.value;
@@ -2969,6 +2998,219 @@ async function dibujarFpDia(){
     referencia: { valor: FP_REFERENCIA, texto: `Ref. ${FP_REFERENCIA}%` },
     anchoPunto: 9, maxPuntos: 0, etiquetasValor: "extremos"
   });
+}
+/* =========================================================
+   DASHBOARD AGUA · REPORTE DE LECTURAS (Equipos semanal)
+   Qué número se registró cada semana, cuándo se registró y,
+   si se cambió, cuándo y de qué valor a qué valor.
+   (Fechas y cambios vienen del script auditoria_lecturas.sql)
+========================================================= */
+let repSemanas = 4;
+let repMedidor = "";
+let repMostrar = "todas";     // "todas" | "modificadas" | "faltantes"
+let repDatos = null;          // { filas, cambios, conAuditoria, semanas }
+function construirSeccionReporte(){
+  const optsMed = [`<option value="">Todos los medidores</option>`]
+    .concat(lineasGlobal.map(l => `<option value="${l.medidorNum}" ${String(l.medidorNum) === repMedidor ? "selected" : ""}>M${l.medidorNum} ${esc(l.nombre)}</option>`)).join("");
+  return `
+    <div id="reporteCont">
+      <p class="subtitulo-seccion" style="margin-top:28px;">Reporte de lecturas — Equipos (Semanal)</p>
+      <div class="grafico-box">
+        <div class="filtros-fila filtros-en-grafico">
+          <div>
+            <label>Semanas</label>
+            <select id="selRepSemanas" class="campo">
+              ${[[4,"Últimas 4"],[8,"Últimas 8"],[12,"Últimas 12"]].map(o => `<option value="${o[0]}" ${repSemanas===o[0]?"selected":""}>${o[1]}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label>Medidor</label>
+            <select id="selRepMedidor" class="campo">${optsMed}</select>
+          </div>
+          <div>
+            <label>Mostrar</label>
+            <select id="selRepMostrar" class="campo">
+              ${[["todas","Todas las lecturas"],["modificadas","Solo modificadas"],["faltantes","Solo faltantes"]].map(o => `<option value="${o[0]}" ${repMostrar===o[0]?"selected":""}>${o[1]}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <p class="grafico-titulo" style="margin-bottom:8px;">
+          <span id="repResumen"></span>
+          <span style="float:right;">
+            <button id="btnRepExcel" class="link-actualizar" style="margin-right:12px;">⬇ Descargar Excel</button>
+            <button id="btnRepActualizar" class="link-actualizar">↻ actualizar</button>
+          </span>
+        </p>
+        <div id="repTabla"><div class="cargando"><div class="spinner"></div>Cargando reporte...</div></div>
+        <p class="nota-chica" id="repNota"></p>
+      </div>
+    </div>`;
+}
+function activarReporte(){
+  if (!document.getElementById("reporteCont")) return;
+  document.getElementById("selRepSemanas").onchange = (e) => { repSemanas = Number(e.target.value); repDatos = null; pintarReporte(); };
+  document.getElementById("selRepMedidor").onchange = (e) => { repMedidor = e.target.value; pintarReporte(); };
+  document.getElementById("selRepMostrar").onchange = (e) => { repMostrar = e.target.value; pintarReporte(); };
+  document.getElementById("btnRepActualizar").onclick = () => { repDatos = null; pintarReporte(); };
+  document.getElementById("btnRepExcel").onclick = descargarReporteExcel;
+  pintarReporte();
+}
+async function cargarDatosReporte(){
+  // Semana más reciente con lecturas
+  const ult = await sb.from("lecturas_semanales").select("semana").order("semana", { ascending: false }).limit(1);
+  if (ult.error) throw new Error(ult.error.message);
+  if (!ult.data.length) return { filas: [], cambios: [], conAuditoria: false, semanas: [] };
+  const sMax = ult.data[0].semana;
+  const sMin = Math.max(1, sMax - repSemanas + 1);
+  const semanas = [];
+  for (let w = sMax; w >= sMin; w--) semanas.push(w);
+  let conAuditoria = true;
+  let r = await sb.from("lecturas_semanales").select("medidor_num,semana,fecha,lectura,creado,modificado")
+    .gte("semana", sMin).lte("semana", sMax).order("semana", { ascending: false }).range(0, 4999);
+  if (r.error && /creado|modificado/i.test(r.error.message)){
+    conAuditoria = false;   // todavía no se ejecutó auditoria_lecturas.sql
+    r = await sb.from("lecturas_semanales").select("medidor_num,semana,fecha,lectura")
+      .gte("semana", sMin).lte("semana", sMax).order("semana", { ascending: false }).range(0, 4999);
+  }
+  if (r.error) throw new Error(r.error.message);
+  let cambios = [];
+  if (conAuditoria){
+    const c = await sb.from("lecturas_cambios").select("medidor_num,semana,lectura_anterior,lectura_nueva,cambiado_en")
+      .eq("tabla", "lecturas_semanales").gte("semana", sMin).lte("semana", sMax)
+      .order("cambiado_en", { ascending: true }).range(0, 4999);
+    if (!c.error) cambios = c.data;
+  }
+  return { filas: r.data, cambios, conAuditoria, semanas };
+}
+function fmtFechaHoraLocal(ts){
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d)) return "";
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// Arma las filas del reporte (una por medidor y semana), incluidas las faltantes
+function filasReporte(){
+  const { filas, cambios, semanas } = repDatos;
+  const porClave = {};
+  filas.forEach(f => { porClave[`${f.medidor_num}|${f.semana}`] = f; });
+  const camPorClave = {};
+  cambios.forEach(c => { (camPorClave[`${c.medidor_num}|${c.semana}`] = camPorClave[`${c.medidor_num}|${c.semana}`] || []).push(c); });
+  const lineas = lineasGlobal.filter(l => !repMedidor || String(l.medidorNum) === repMedidor);
+  const out = [];
+  semanas.forEach(w => {
+    lineas.forEach(l => {
+      const f = porClave[`${l.medidorNum}|${w}`] || null;
+      const cg = (consumoGlobal || []).find(x => x.medidorNum === l.medidorNum);
+      out.push({
+        semana: w, medidorNum: l.medidorNum, nombre: l.nombre,
+        lectura: f ? Number(f.lectura) : null,
+        fecha: f ? f.fecha : null,
+        consumo: (f && cg) ? consumoDe(cg, w) : null,
+        creado: f ? f.creado : null,
+        modificado: f ? f.modificado : null,
+        cambios: camPorClave[`${l.medidorNum}|${w}`] || []
+      });
+    });
+  });
+  return out;
+}
+async function pintarReporte(){
+  const cont = document.getElementById("repTabla");
+  if (!cont) return;
+  if (repDatos === null){
+    cont.innerHTML = `<div class="cargando"><div class="spinner"></div>Cargando reporte...</div>`;
+    try{
+      if (consumoGlobal === null) await cargarConsumoSemanal();
+      repDatos = await cargarDatosReporte();
+    }catch(e){
+      if (document.getElementById("repTabla")) cont.innerHTML = `<div class="mensaje-error">No se pudo cargar el reporte: ${esc(e.message)}</div>`;
+      return;
+    }
+    if (!document.getElementById("repTabla")) return;
+  }
+  const todas = filasReporte();
+  const nota = document.getElementById("repNota");
+  nota.innerHTML = repDatos.conAuditoria
+    ? `“Registrado” es la fecha y hora en que se guardó la lectura por primera vez; “Modificado”, la última vez que se cambió el número. Las lecturas guardadas antes de activar este reporte no tienen hora de registro.`
+    : `<b>Falta activar la auditoría:</b> ejecuta <code>auditoria_lecturas.sql</code> en Supabase (SQL Editor) para ver fecha y hora de registro y de cada modificación. Por ahora solo se muestran los valores.`;
+  // Resumen por semana
+  const semanas = repDatos.semanas;
+  const resumen = semanas.map(w => {
+    const fw = todas.filter(f => f.semana === w);
+    const ok = fw.filter(f => f.lectura !== null).length;
+    return `S${w}: ${ok}/${fw.length}`;
+  }).join(" · ");
+  document.getElementById("repResumen").textContent = semanas.length ? `Registrados — ${resumen}` : "";
+  let filas = todas;
+  if (repMostrar === "modificadas") filas = filas.filter(f => f.modificado || f.cambios.length);
+  if (repMostrar === "faltantes") filas = filas.filter(f => f.lectura === null);
+  if (!filas.length){
+    cont.innerHTML = `<div class="vacio" style="margin:10px 0;">${repMostrar === "faltantes" ? "No falta ninguna lectura en estas semanas." : repMostrar === "modificadas" ? "No hay lecturas modificadas en estas semanas." : "No hay lecturas en estas semanas."}</div>`;
+    return;
+  }
+  let html = "", semanaAnt = null;
+  filas.forEach(f => {
+    if (f.semana !== semanaAnt){
+      const fw = todas.filter(x => x.semana === f.semana);
+      const ok = fw.filter(x => x.lectura !== null).length;
+      html += `<tr class="rep-semana"><td colspan="7">Semana ${f.semana} <span>${ok} de ${fw.length} registrados${ok < fw.length ? ` · faltan ${fw.length - ok}` : " ✓"}</span></td></tr>`;
+      semanaAnt = f.semana;
+    }
+    const historial = f.cambios.length
+      ? f.cambios.map(c => `<div class="rep-cambio">${fmtFechaHoraLocal(c.cambiado_en)}: <s>${fmtN(Number(c.lectura_anterior), 2)}</s> → <b>${fmtN(Number(c.lectura_nueva), 2)}</b></div>`).join("")
+      : "—";
+    const consumoTxt = f.consumo === null ? "—" : `<span class="${f.consumo < 0 ? "txt-malo" : ""}">${fmtN(f.consumo, 2)}</span>`;
+    html += f.lectura === null
+      ? `<tr class="rep-falta"><td>${f.semana}</td><td>M${f.medidorNum} ${esc(f.nombre)}</td><td colspan="5"><span class="tag-falta">Falta registrar</span></td></tr>`
+      : `<tr class="${f.modificado || f.cambios.length ? "rep-mod" : ""}">
+          <td>${f.semana}</td>
+          <td>M${f.medidorNum} ${esc(f.nombre)}</td>
+          <td class="num">${fmtN(f.lectura, 2)}</td>
+          <td class="num">${consumoTxt}</td>
+          <td>${f.creado ? fmtFechaHoraLocal(f.creado) : `<span class="sutil">${f.fecha ? formatearFechaDMA(f.fecha) + " (sin hora)" : "—"}</span>`}</td>
+          <td>${f.modificado ? `<span class="tag-mod">✎ ${fmtFechaHoraLocal(f.modificado)}</span>` : "—"}</td>
+          <td>${historial}</td>
+        </tr>`;
+  });
+  cont.innerHTML = `<div class="tabla-scroll"><table class="tabla-var tabla-reporte">
+    <thead><tr><th>Sem</th><th>Medidor</th><th>Lectura</th><th>Consumo (m³)</th><th>Registrado</th><th>Modificado</th><th>Cambios (antes → después)</th></tr></thead>
+    <tbody>${html}</tbody></table></div>`;
+}
+async function descargarReporteExcel(){
+  if (!repDatos) return;
+  const btn = document.getElementById("btnRepExcel");
+  const txt = btn.textContent;
+  btn.textContent = "Preparando...";
+  try{
+    const XLSX = await cargarSheetJS();
+    let filas = filasReporte();
+    if (repMostrar === "modificadas") filas = filas.filter(f => f.modificado || f.cambios.length);
+    if (repMostrar === "faltantes") filas = filas.filter(f => f.lectura === null);
+    const aoa = [["Semana", "Medidor", "Equipo", "Lectura", "Consumo (m³)", "Registrado", "Modificado", "Cambios (antes → después)"]];
+    filas.forEach(f => aoa.push([
+      f.semana, f.medidorNum, f.nombre,
+      f.lectura === null ? "FALTA" : f.lectura,
+      f.consumo === null ? "" : Number(f.consumo.toFixed(2)),
+      f.creado ? fmtFechaHoraLocal(f.creado) : (f.fecha ? formatearFechaDMA(f.fecha) : ""),
+      f.modificado ? fmtFechaHoraLocal(f.modificado) : "",
+      f.cambios.map(c => `${fmtFechaHoraLocal(c.cambiado_en)}: ${c.lectura_anterior} -> ${c.lectura_nueva}`).join(" | ")
+    ]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 8 }, { wch: 9 }, { wch: 32 }, { wch: 12 }, { wch: 13 }, { wch: 17 }, { wch: 17 }, { wch: 60 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lecturas");
+    const sems = repDatos.semanas;
+    XLSX.writeFile(wb, `Reporte_lecturas_agua_S${sems[sems.length - 1]}-S${sems[0]}.xlsx`);
+  }catch(e){
+    alertaSimple("No se pudo generar el Excel: " + e.message);
+  }finally{
+    btn.textContent = txt;
+  }
+}
+function alertaSimple(msg){
+  const n = document.getElementById("repNota");
+  if (n) n.innerHTML = `<span class="txt-malo">${esc(msg)}</span>`;
 }
 /* --- Consumo de agua por semana/mes (barras m³ + línea m³/t) y Pareto del periodo elegido --- */
 function opcionesMedidorAgua(){
